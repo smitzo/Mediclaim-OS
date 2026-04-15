@@ -4,6 +4,8 @@ FastAPI + LangGraph service for medical claim PDF processing.
 
 This project accepts a PDF claim document, classifies each page into a document type, routes only the relevant pages to specialist extraction agents, and returns one aggregated JSON response.
 
+Video explanation: https://drive.google.com/file/d/1AT5ryQddgM56CS5ozJYVw5A70nFkQiWl/view
+
 ## Workflow
 
 The LangGraph workflow follows this structure:
