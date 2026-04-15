@@ -4,7 +4,7 @@ Pydantic schemas for the claim processing pipeline.
 
 from __future__ import annotations
 import operator
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -159,6 +159,31 @@ class ClaimResponse(BaseModel):
     extracted_data: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
     processing_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+JobStatus = Literal["queued", "processing", "succeeded", "partial", "failed"]
+
+
+class ClaimJob(BaseModel):
+    job_id: str
+    claim_id: str
+    filename: str
+    status: JobStatus
+    created_at: str
+    updated_at: str
+    page_count: int = 0
+    file_size_bytes: int = 0
+    error: Optional[str] = None
+    result_url: Optional[str] = None
+
+
+class ClaimJobSubmitResponse(BaseModel):
+    job: ClaimJob
+
+
+class ClaimBatchSubmitResponse(BaseModel):
+    jobs: list[ClaimJob] = Field(default_factory=list)
+    rejected: list[dict[str, str]] = Field(default_factory=list)
 
 
 ClaimState.model_rebuild()

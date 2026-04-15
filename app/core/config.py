@@ -21,5 +21,14 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "INFO"
+    data_dir: str = "data"
+    max_upload_bytes: int = 200 * 1024 * 1024
+    max_pdf_pages: int = 500
+
+    # Distributed worker
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+    worker_concurrency: int = 2
+    task_time_limit_seconds: int = 60 * 60
 
 settings = Settings()

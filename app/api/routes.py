@@ -5,8 +5,17 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from app.core.graph import claim_graph
-from app.core.schemas import ClaimState, ClaimResponse
+from app.core.config import settings
+from app.core.schemas import (
+    ClaimBatchSubmitResponse,
+    ClaimJob,
+    ClaimJobSubmitResponse,
+    ClaimResponse,
+)
+from app.services.processor import process_claim_pdf
+from app.services.storage import storage
+from app.utils.pdf_utils import get_page_count
+from app.workers.tasks import process_claim_job
 
 logger = logging.getLogger(__name__)
 
@@ -41,65 +50,132 @@ async def process_claim(
 
     logger.info("Received claim %s | file=%s | size=%d bytes", claim_id, file.filename, len(pdf_bytes))
 
-    # Build initial state
-    initial_state = ClaimState(
-        claim_id=claim_id,
-        pdf_bytes=pdf_bytes,
-    )
-
     try:
-        final_state = claim_graph.invoke(initial_state)
+        response = process_claim_pdf(claim_id, pdf_bytes)
     except Exception as exc:
         logger.exception("Pipeline failed for claim %s: %s", claim_id, exc)
         raise HTTPException(status_code=500, detail=f"Processing pipeline error: {exc}")
 
-    # Extract state from LangGraph's result (could be dict or other type)
-    if isinstance(final_state, dict):
-        state_dict = final_state
-    else:
-        # Try to convert to dict
-        try:
-            state_dict = dict(final_state) if hasattr(final_state, '__iter__') else final_state.__dict__
-        except Exception:
-            state_dict = {}
-
     logger.info(
-        "Pipeline completed for claim %s | final_state_type=%s | keys=%s",
+        "Pipeline completed for claim %s | status=%s | extracted_sections=%s | errors=%d",
         claim_id,
-        type(final_state).__name__,
-        sorted(state_dict.keys()),
+        response.status,
+        sorted(response.extracted_data.keys()),
+        len(response.errors),
     )
-    
-    # Retrieve the ClaimResponse built by the aggregator node
-    response: ClaimResponse | None = state_dict.get("final_response") or state_dict.get("_response")
-    if response is None:
-        # Fallback — should not normally happen
-        errors = state_dict.get("errors", [])
-        logger.error(
-            "Aggregator response missing for claim %s | errors=%s | state_snapshot=%s",
-            claim_id,
-            errors,
-            {
-                "has_segregator_output": bool(state_dict.get("segregator_output")),
-                "has_identity_data": state_dict.get("identity_data") is not None,
-                "has_discharge_data": state_dict.get("discharge_data") is not None,
-                "has_bill_data": state_dict.get("bill_data") is not None,
-            },
-        )
-        if not errors or (isinstance(errors, list) and len(errors) == 0):
-            errors = ["Aggregator did not produce a response."]
-        response = ClaimResponse(
-            claim_id=claim_id,
-            status="failed",
-            errors=errors if isinstance(errors, list) else [str(errors)],
-        )
-    else:
-        logger.info(
-            "Returning response for claim %s | status=%s | extracted_sections=%s | errors=%d",
-            claim_id,
-            response.status,
-            sorted(response.extracted_data.keys()),
-            len(response.errors),
-        )
 
     return JSONResponse(content=response.model_dump())
+
+
+@router.post(
+    "/claims",
+    response_model=ClaimJobSubmitResponse,
+    status_code=202,
+    summary="Submit one claim PDF for background processing",
+    tags=["Claims"],
+)
+async def submit_claim_job(
+    claim_id: str = Form(..., description="Business claim identifier"),
+    file: UploadFile = File(..., description="PDF claim document"),
+) -> ClaimJobSubmitResponse:
+    pdf_bytes, page_count = await _validated_pdf(file)
+    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count)
+    _enqueue_job(job)
+    return ClaimJobSubmitResponse(job=job)
+
+
+@router.post(
+    "/claims/batch",
+    response_model=ClaimBatchSubmitResponse,
+    status_code=202,
+    summary="Submit many claim PDFs for background processing",
+    tags=["Claims"],
+)
+async def submit_claim_batch(
+    files: list[UploadFile] = File(..., description="One or more PDF claim documents"),
+    claim_ids: list[str] | None = Form(None, description="Optional claim IDs matching upload order"),
+) -> ClaimBatchSubmitResponse:
+    jobs: list[ClaimJob] = []
+    rejected: list[dict[str, str]] = []
+
+    for index, upload in enumerate(files):
+        claim_id = _claim_id_for_upload(upload, index, claim_ids)
+        try:
+            pdf_bytes, page_count = await _validated_pdf(upload)
+            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count)
+            _enqueue_job(job)
+            jobs.append(job)
+        except HTTPException as exc:
+            rejected.append({
+                "filename": upload.filename or f"file-{index}",
+                "reason": str(exc.detail),
+            })
+        except Exception as exc:
+            logger.exception("Batch submit failed for %s", upload.filename)
+            rejected.append({
+                "filename": upload.filename or f"file-{index}",
+                "reason": str(exc),
+            })
+
+    if not jobs and rejected:
+        logger.warning("Batch rejected all %d upload(s)", len(rejected))
+    return ClaimBatchSubmitResponse(jobs=jobs, rejected=rejected)
+
+
+@router.get(
+    "/claims/{job_id}",
+    response_model=ClaimJob,
+    summary="Get claim job status",
+    tags=["Claims"],
+)
+async def get_claim_job(job_id: str) -> ClaimJob:
+    return storage.get_job(job_id)
+
+
+@router.get(
+    "/claims/{job_id}/result",
+    response_model=ClaimResponse,
+    summary="Get a completed claim extraction result",
+    tags=["Claims"],
+)
+async def get_claim_result(job_id: str) -> ClaimResponse:
+    return storage.get_result(job_id)
+
+
+async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(pdf_bytes) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="Uploaded PDF exceeds the configured size limit.")
+
+    try:
+        page_count = get_page_count(pdf_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Uploaded file is not a valid PDF: {exc}") from exc
+
+    if page_count > settings.max_pdf_pages:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF has {page_count} pages; maximum allowed is {settings.max_pdf_pages}.",
+        )
+    return pdf_bytes, page_count
+
+
+def _enqueue_job(job: ClaimJob) -> None:
+    try:
+        process_claim_job.delay(job.job_id)
+    except Exception as exc:
+        storage.update_job(job.job_id, "failed", error=f"Queue submission failed: {exc}")
+        logger.exception("Failed to enqueue job %s", job.job_id)
+        raise HTTPException(status_code=503, detail="Processing queue is unavailable.") from exc
+
+
+def _claim_id_for_upload(upload: UploadFile, index: int, claim_ids: list[str] | None) -> str:
+    if claim_ids and index < len(claim_ids) and claim_ids[index].strip():
+        return claim_ids[index].strip()
+    stem = (upload.filename or f"claim-{index + 1}").rsplit(".", 1)[0]
+    return stem or f"claim-{index + 1}"
