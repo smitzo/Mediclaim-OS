@@ -13,7 +13,7 @@ from app.core.schemas import (
     DOCUMENT_TYPES,
 )
 from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
-from app.utils.pdf_utils import render_pages_to_base64, extract_page_texts, get_page_count
+from app.utils.pdf_utils import extract_page_texts, get_page_count, render_selected_pages_to_base64
 
 logger = logging.getLogger(__name__)
 SEGREGATOR_CHUNK_SIZE = 4
@@ -75,11 +75,6 @@ def segregator_agent(state: ClaimState) -> ClaimState:
     state.page_texts = page_texts
     logger.info("[Segregator] Extracted text from %d pages", len(page_texts))
 
-    logger.info("[Segregator] Rendering %d pages to images", total_pages)
-    page_images = render_pages_to_base64(pdf_bytes, dpi=120)
-    state.page_images = page_images
-    logger.info("[Segregator] Rendered %d page images", len(page_images))
-
     errors = list(state.errors or [])
 
     result: list[dict] = []
@@ -99,7 +94,26 @@ def segregator_agent(state: ClaimState) -> ClaimState:
         total_pages,
     )
 
-    for chunk in _chunk_pages(unresolved_pages, SEGREGATOR_CHUNK_SIZE):
+    unresolved_chunks = _chunk_pages(unresolved_pages, SEGREGATOR_CHUNK_SIZE)
+    pages_needing_vision = sorted({
+        page
+        for chunk in unresolved_chunks
+        if not _should_use_text_only(chunk, page_texts)
+        for page in chunk
+    })
+    page_images = (
+        render_selected_pages_to_base64(pdf_bytes, pages_needing_vision, dpi=120)
+        if pages_needing_vision
+        else {}
+    )
+    state.page_images = page_images
+    logger.info(
+        "[Segregator] Rendered %d/%d page images for ambiguous vision classification",
+        len(page_images),
+        total_pages,
+    )
+
+    for chunk in unresolved_chunks:
         try:
             result.extend(_classify_chunk(state.claim_id, chunk, page_texts, page_images))
         except Exception as exc:

@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.schemas import AGENT_DOCUMENT_MAP, ClaimState, DischargeSummaryData
 from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.pdf_utils import render_selected_pages_to_base64
 from app.utils.text_extractors import extract_discharge_data_from_text, has_discharge_signal
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ def _run_discharge_call(
         text_prompt = f"{prompt}\n\nPage text:\n{_build_text_context(state, pages)}"
         return call_llm_json_text_only(DISCHARGE_SYSTEM, text_prompt, max_tokens=max_tokens)
 
+    _ensure_page_images(state, pages)
     images = [state.page_images[p] for p in pages if p in state.page_images]
     messages = build_vision_message(f"{prompt}\n\nPage text:\n{_build_text_context(state, pages)}", images)
     return call_llm_json(DISCHARGE_SYSTEM, messages, max_tokens=max_tokens)
@@ -164,6 +166,12 @@ def _build_text_context(state: ClaimState, pages: list[int]) -> str:
 
 def _should_use_text_only(state: ClaimState, pages: list[int]) -> bool:
     return all(len((state.page_texts.get(page) or "").strip()) >= TEXT_ONLY_MIN_CHARS for page in pages)
+
+
+def _ensure_page_images(state: ClaimState, pages: list[int]) -> None:
+    missing_pages = [page for page in pages if page not in state.page_images]
+    if missing_pages:
+        state.page_images.update(render_selected_pages_to_base64(state.pdf_bytes, missing_pages, dpi=120))
 
 
 def _merge_discharge_payloads(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:

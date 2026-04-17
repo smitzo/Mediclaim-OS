@@ -7,6 +7,7 @@ import logging
 from app.core.schemas import AGENT_DOCUMENT_MAP, ClaimState, IdentityData
 from app.utils.text_extractors import extract_identity_data_from_text, has_identity_signal
 from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.pdf_utils import render_selected_pages_to_base64
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ def id_agent(state: ClaimState) -> dict:
                 max_tokens=1024,
             )
         else:
+            _ensure_page_images(state, assigned_pages)
             images = [state.page_images[p] for p in assigned_pages if p in state.page_images]
             messages = build_vision_message(
                 f"{prompt}\n\nPage text:\n{text_context}",
@@ -113,3 +115,9 @@ def _build_text_context(state: ClaimState, pages: list[int]) -> str:
 
 def _should_use_text_only(state: ClaimState, pages: list[int]) -> bool:
     return all(len((state.page_texts.get(page) or "").strip()) >= TEXT_ONLY_MIN_CHARS for page in pages)
+
+
+def _ensure_page_images(state: ClaimState, pages: list[int]) -> None:
+    missing_pages = [page for page in pages if page not in state.page_images]
+    if missing_pages:
+        state.page_images.update(render_selected_pages_to_base64(state.pdf_bytes, missing_pages, dpi=120))
