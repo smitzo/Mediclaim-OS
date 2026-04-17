@@ -123,6 +123,17 @@ async def submit_claim_batch(
 
 
 @router.get(
+    "/claims",
+    response_model=list[ClaimJob],
+    summary="List recent claim jobs",
+    tags=["Claims"],
+)
+async def list_claim_jobs(limit: int = 100) -> list[ClaimJob]:
+    bounded_limit = max(1, min(limit, 500))
+    return storage.list_jobs(limit=bounded_limit)
+
+
+@router.get(
     "/claims/{job_id}",
     response_model=ClaimJob,
     summary="Get claim job status",

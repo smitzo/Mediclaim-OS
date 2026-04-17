@@ -61,6 +61,17 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim job not found.")
         return ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
 
+    def list_jobs(self, limit: int = 100) -> list[ClaimJob]:
+        jobs: list[ClaimJob] = []
+        for path in sorted(self.job_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                jobs.append(ClaimJob(**json.loads(path.read_text(encoding="utf-8"))))
+            except Exception:
+                continue
+            if len(jobs) >= limit:
+                break
+        return jobs
+
     def save_job(self, job: ClaimJob) -> None:
         job.updated_at = utc_now()
         self.job_path(job.job_id).write_text(
