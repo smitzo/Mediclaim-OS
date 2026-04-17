@@ -9,8 +9,6 @@ from __future__ import annotations
 import base64
 import io
 import logging
-from typing import Any
-
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
@@ -35,12 +33,29 @@ def render_pages_to_base64(pdf_bytes: bytes, dpi: int = 120) -> dict[int, str]:
     -------
     dict mapping 0-indexed page number → base64 PNG string
     """
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        return render_selected_pages_to_base64(
+            pdf_bytes=pdf_bytes,
+            pages=range(doc.page_count),
+            dpi=dpi,
+        )
+
+
+def render_selected_pages_to_base64(
+    pdf_bytes: bytes,
+    pages: list[int] | range | set[int],
+    dpi: int = 120,
+) -> dict[int, str]:
+    """Render only selected PDF pages to base64 PNG strings."""
     result: dict[int, str] = {}
     zoom = dpi / 72.0  # fitz uses 72 dpi as baseline
     matrix = fitz.Matrix(zoom, zoom)
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
-        for page_num in range(doc.page_count):
+        for page_num in sorted(set(pages)):
+            if page_num < 0 or page_num >= doc.page_count:
+                logger.warning("Skipping out-of-range page render request: %d", page_num)
+                continue
             page = doc[page_num]
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             png_bytes = pixmap.tobytes("png")
