@@ -2,7 +2,7 @@
 
 FastAPI + LangGraph service for medical claim PDF processing.
 
-This project accepts a PDF claim document, classifies each page into a document type, routes only the relevant pages to specialist extraction agents, and returns one aggregated JSON response.
+This project accepts PDF claim documents, stores them as durable jobs, classifies each page into a document type, routes only the relevant pages to specialist extraction agents, and stores one aggregated JSON result per claim.
 
 Video explanation: https://drive.google.com/file/d/1AT5ryQddgM56CS5ozJYVw5A70nFkQiWl/view
 
@@ -37,7 +37,15 @@ The LangGraph workflow follows this structure:
 
 ### 1. API Input
 
-The service exposes:
+The service exposes the production async API:
+
+- `POST /api/claims`
+- `POST /api/claims/batch`
+- `GET /api/claims`
+- `GET /api/claims/{job_id}`
+- `GET /api/claims/{job_id}/result`
+
+It also keeps the original compatibility endpoint:
 
 - `POST /api/process`
 
@@ -46,7 +54,13 @@ Inputs:
 - `claim_id`: string
 - `file`: PDF upload
 
-Output:
+Async output:
+
+- job metadata with a `job_id`
+- status transitions: `queued`, `processing`, `succeeded`, `partial`, `failed`
+- result JSON once processing is complete
+
+Synchronous output:
 
 - JSON with page classifications, extracted structured data, errors, and a processing summary.
 
@@ -54,11 +68,12 @@ Output:
 
 The segregator first extracts page text from the PDF and renders page images.
 
-To improve reliability, segregation uses a hybrid strategy:
+To improve reliability and memory use, segregation uses a hybrid strategy:
 
 - local text heuristics first for obvious pages
 - Gemini only for pages that are still ambiguous
 - fallback page-level classification if a chunk fails
+- lazy page rendering so hundreds of text-based invoice pages are not all converted to images
 
 This reduces API usage and keeps the workflow stable for larger PDFs.
 
@@ -142,15 +157,35 @@ Create `.env` file:
 GOOGLE_API_KEY=your_api_key_here
 APP_ENV=development
 LOG_LEVEL=INFO
+DATA_DIR=data
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
 ```
 
-### 3. Run the server
+You can copy `.env.example` as the starting point.
+
+### 3. Run the server only
+
+This supports `/api/process` and status reads, but async jobs require Redis and a worker.
 
 ```bash
 uvicorn main:app --reload
 ```
 
-### 4. Open Swagger UI
+### 4. Run the distributed stack
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- FastAPI API server
+- Celery worker
+- Redis queue and result backend
+- shared durable storage volume for uploaded PDFs and results
+
+### 5. Open Swagger UI
 
 ```text
 http://127.0.0.1:8000/docs
@@ -167,7 +202,8 @@ http://127.0.0.1:8000/docs
 ## Notes
 
 - Small and text-based PDFs work best because deterministic extraction can recover fields even if LLM JSON is incomplete.
-- Large PDFs may still depend on Gemini quota and rate limits.
+- Large batches should use the async job endpoints so HTTP workers are not blocked.
+- Large PDFs may still depend on Gemini quota and rate limits, but text-first extraction and lazy rendering reduce unnecessary LLM and memory usage.
 - The system logs every stage to make debugging easier.
 
 ## Submission Summary
