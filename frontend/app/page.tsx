@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
+  Database,
   FileArchive,
   FileText,
   Loader2,
+  PlayCircle,
   RefreshCw,
   UploadCloud
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, getClaimResult, listJobs, submitClaims } from "@/lib/api";
+import { getDemoJobs, getDemoResult, getProcessedDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
   queued: "bg-slate-100 text-slate-700 ring-slate-200",
@@ -19,6 +22,14 @@ const statusStyles: Record<string, string> = {
   succeeded: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   partial: "bg-amber-50 text-amber-700 ring-amber-200",
   failed: "bg-rose-50 text-rose-700 ring-rose-200"
+};
+
+const statusLabels: Record<string, string> = {
+  queued: "Queued",
+  processing: "Processing",
+  succeeded: "Succeeded",
+  partial: "Partial",
+  failed: "Failed"
 };
 
 export default function Home() {
@@ -29,6 +40,9 @@ export default function Home() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [resultLoading, setResultLoading] = useState(false);
+  const [processingDemo, setProcessingDemo] = useState(false);
+  const [demoLoaded, setDemoLoaded] = useState(false);
+  const [demoProcessed, setDemoProcessed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const stats = useMemo(() => {
@@ -40,19 +54,58 @@ export default function Home() {
     };
   }, [jobs]);
 
+  const demoSummary = useMemo(() => {
+    if (!demoLoaded) {
+      return "Live API";
+    }
+    if (demoProcessed) {
+      return "Demo results ready";
+    }
+    return "Demo jobs loaded";
+  }, [demoLoaded, demoProcessed]);
+
   const refreshJobs = useCallback(async () => {
     setLoadingJobs(true);
     setError(null);
     try {
       const nextJobs = await listJobs();
       setJobs(nextJobs);
-      setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? current : current);
+      setDemoLoaded(false);
+      setDemoProcessed(false);
+      setResult(null);
+      setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? null : current);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load jobs");
     } finally {
       setLoadingJobs(false);
     }
   }, []);
+
+  function loadDemoData() {
+    const nextJobs = getDemoJobs();
+    setJobs(nextJobs);
+    setFiles([]);
+    setResult(null);
+    setSelectedJob(nextJobs[0] ?? null);
+    setDemoLoaded(true);
+    setDemoProcessed(false);
+    setError(null);
+  }
+
+  async function processDemoData() {
+    setProcessingDemo(true);
+    setError(null);
+    setResult(null);
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+    const nextJobs = getProcessedDemoJobs();
+    const nextSelectedJob = nextJobs[0] ?? null;
+    setJobs(nextJobs);
+    setSelectedJob(nextSelectedJob);
+    setDemoLoaded(true);
+    setDemoProcessed(true);
+    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id) : null);
+    setProcessingDemo(false);
+  }
 
   async function uploadSelectedFiles() {
     if (!files.length) {
@@ -63,7 +116,9 @@ export default function Home() {
     try {
       const response = await submitClaims(files);
       setFiles([]);
-      setJobs((current) => [...response.jobs, ...current]);
+      setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
+      setDemoLoaded(false);
+      setDemoProcessed(false);
       if (response.rejected.length) {
         setError(`${response.rejected.length} file(s) were rejected. Check PDF type, size, or page limits.`);
       }
@@ -77,6 +132,13 @@ export default function Home() {
   async function inspectJob(job: ClaimJob) {
     setSelectedJob(job);
     setResult(null);
+    if (isDemoJob(job.job_id)) {
+      const demoResult = getDemoResult(job.job_id);
+      if (demoResult && (job.status === "succeeded" || job.status === "partial")) {
+        setResult(demoResult);
+      }
+      return;
+    }
     if (job.status !== "succeeded" && job.status !== "partial") {
       return;
     }
@@ -96,18 +158,21 @@ export default function Home() {
   }, [refreshJobs]);
 
   useEffect(() => {
+    if (demoLoaded) {
+      return;
+    }
     const interval = window.setInterval(() => {
       if (jobs.some((job) => job.status === "queued" || job.status === "processing")) {
         refreshJobs();
       }
     }, 4000);
     return () => window.clearInterval(interval);
-  }, [jobs, refreshJobs]);
+  }, [demoLoaded, jobs, refreshJobs]);
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 md:flex-row md:items-end md:justify-between">
+        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-medium text-blue-700">ClaimOps</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Document Processor</h1>
@@ -115,14 +180,34 @@ export default function Home() {
               Upload claim PDFs in batches, let the distributed worker process them, and inspect structured extraction results as jobs finish.
             </p>
           </div>
-          <button
-            onClick={refreshJobs}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100 disabled:opacity-60"
-            disabled={loadingJobs}
-          >
-            <RefreshCw className={`h-4 w-4 ${loadingJobs ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-10 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600">
+              {demoSummary}
+            </span>
+            <button
+              onClick={loadDemoData}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+            >
+              <Database className="h-4 w-4" />
+              Load demo data
+            </button>
+            <button
+              onClick={processDemoData}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={processingDemo}
+            >
+              {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
+              Process demo data
+            </button>
+            <button
+              onClick={refreshJobs}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100 disabled:opacity-60"
+              disabled={loadingJobs}
+            >
+              <RefreshCw className={`h-4 w-4 ${loadingJobs ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
         </header>
 
         {error ? (
@@ -204,20 +289,21 @@ export default function Home() {
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {jobs.map((job) => (
-                    <tr key={job.job_id} className="hover:bg-zinc-50">
+                    <tr key={job.job_id} className={selectedJob?.job_id === job.job_id ? "bg-blue-50/60" : "hover:bg-zinc-50"}>
                       <td className="px-5 py-3 font-medium text-zinc-950">{job.claim_id}</td>
                       <td className="max-w-64 truncate px-5 py-3 text-zinc-600">{job.filename}</td>
                       <td className="px-5 py-3 text-zinc-600">{job.page_count}</td>
                       <td className="px-5 py-3">
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusStyles[job.status]}`}>
-                          {job.status}
+                          {statusLabels[job.status] ?? job.status}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-zinc-600">{formatDate(job.updated_at)}</td>
                       <td className="px-5 py-3">
                         <button
                           onClick={() => inspectJob(job)}
-                          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={job.status === "queued" || job.status === "processing"}
                         >
                           <FileText className="h-4 w-4" />
                           Inspect
@@ -243,11 +329,14 @@ export default function Home() {
             <div>
               <h2 className="text-base font-semibold text-zinc-950">Result inspector</h2>
               <p className="text-sm text-zinc-500">
-                {selectedJob ? `${selectedJob.claim_id} · ${selectedJob.status}` : "Select a completed or partial job to view extracted JSON."}
+                {selectedJob ? `${selectedJob.claim_id} - ${statusLabels[selectedJob.status] ?? selectedJob.status}` : "Select a completed or partial job to view extracted JSON."}
               </p>
             </div>
             {resultLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-700" /> : null}
           </div>
+
+          {result ? <ResultSummary result={result} /> : null}
+
           <pre className="mt-4 max-h-[520px] overflow-auto rounded-md bg-zinc-950 p-4 text-xs leading-6 text-zinc-100">
             {result ? JSON.stringify(result, null, 2) : selectedJob?.error ?? "No result selected."}
           </pre>
@@ -257,7 +346,7 @@ export default function Home() {
   );
 }
 
-function MetricCard({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+function MetricCard({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
@@ -267,6 +356,96 @@ function MetricCard({ label, value, icon }: { label: string; value: number; icon
       <div className="mt-3 text-2xl font-semibold text-zinc-950">{value}</div>
     </div>
   );
+}
+
+function ResultSummary({ result }: { result: ClaimResponse }) {
+  const identity = getRecord(result.extracted_data.identity);
+  const discharge = getRecord(result.extracted_data.discharge_summary);
+  const bill = getRecord(result.extracted_data.itemized_bill);
+  const lineItems = Array.isArray(bill.line_items) ? bill.line_items : [];
+  const summary = result.processing_summary;
+
+  return (
+    <div className="mt-5 grid gap-4 lg:grid-cols-3">
+      <div className="rounded-lg border border-zinc-200 p-4">
+        <h3 className="text-sm font-semibold text-zinc-950">Identity</h3>
+        <dl className="mt-3 space-y-2 text-sm">
+          <SummaryRow label="Patient" value={getString(identity.patient_name)} />
+          <SummaryRow label="Policy" value={getString(identity.policy_number)} />
+          <SummaryRow label="Insurer" value={getString(identity.insurance_provider)} />
+          <SummaryRow label="Bank" value={getString(identity.bank_name)} />
+        </dl>
+      </div>
+      <div className="rounded-lg border border-zinc-200 p-4">
+        <h3 className="text-sm font-semibold text-zinc-950">Clinical</h3>
+        <dl className="mt-3 space-y-2 text-sm">
+          <SummaryRow label="Hospital" value={getString(discharge.hospital_name)} />
+          <SummaryRow label="Diagnosis" value={getString(discharge.final_diagnosis)} />
+          <SummaryRow label="Stay" value={getString(discharge.length_of_stay)} />
+          <SummaryRow label="Physician" value={getString(discharge.attending_physician)} />
+        </dl>
+      </div>
+      <div className="rounded-lg border border-zinc-200 p-4">
+        <h3 className="text-sm font-semibold text-zinc-950">Billing</h3>
+        <dl className="mt-3 space-y-2 text-sm">
+          <SummaryRow label="Bill no." value={getString(bill.bill_number)} />
+          <SummaryRow label="Total" value={formatCurrency(bill.total_amount)} />
+          <SummaryRow label="Patient due" value={formatCurrency(bill.patient_responsibility)} />
+          <SummaryRow label="Line items" value={String(lineItems.length)} />
+        </dl>
+      </div>
+      <div className="rounded-lg border border-zinc-200 p-4 lg:col-span-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-950">Processing output</h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {String(summary.total_pages ?? result.page_classification.length)} pages, {result.page_classification.length} classifications, {result.errors.length} errors
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {result.page_classification.map((page) => (
+              <span key={`${page.page_number}-${page.document_type}`} className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                p{String(page.page_number)} {String(page.document_type).replaceAll("_", " ")}
+              </span>
+            ))}
+          </div>
+        </div>
+        {result.errors.length ? (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {result.errors.join(" ")}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="shrink-0 text-zinc-500">{label}</dt>
+      <dd className="text-right font-medium text-zinc-900">{value || "-"}</dd>
+    </div>
+  );
+}
+
+function getRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function getString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function formatCurrency(value: unknown): string {
+  if (typeof value !== "number") {
+    return "";
+  }
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0
+  }).format(value);
 }
 
 function formatBytes(bytes: number) {
