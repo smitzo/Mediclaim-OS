@@ -1,248 +1,247 @@
-# Document Processor Architecture Understanding
+# Document Processor Technical Understanding
 
-This `understanding.md` was written roughly by Smit, then explained in detail using AI.
+This document explains the project from an engineering point of view: what the system does, how the main modules interact, why this architecture was chosen, what tradeoffs were accepted, and how the project can be improved further.
 
-## 1. What This Project Does
+## 1. Project Goal
 
-This project is a medical claim document processor.
+The project processes medical insurance claim PDFs.
 
-In simple words, a user uploads one or many PDF claim documents. Each PDF may contain many pages. Those pages can include claim forms, identity documents, hospital bills, discharge summaries, prescriptions, receipts, reports, and other supporting documents.
+A single claim PDF can contain many mixed document pages:
 
-The backend reads the PDF, understands what each page is, sends the right pages to the right extraction logic, and produces a structured JSON result.
+- claim forms
+- identity documents
+- bank or cheque details
+- itemized hospital bills
+- discharge summaries
+- prescriptions
+- investigation reports
+- payment receipts
+- unrelated or unknown pages
 
-The frontend gives an operator a dashboard where they can upload many PDFs, see jobs moving through the queue, and inspect the final extracted data.
+The system converts that mixed PDF into one structured JSON response with:
 
-## 2. Why The Project Was Changed
+- page classification
+- extracted identity and policy details
+- extracted discharge summary details
+- extracted billing details
+- processing errors
+- processing metadata
 
-The earlier version worked like a simple request-response API.
+The important product goal is not only extraction. The system also needs to handle many documents without blocking the API, losing visibility, or forcing the user to wait on one long HTTP request.
 
-That means:
+## 2. High-Level Architecture
 
-1. The user uploaded one PDF.
-2. The API kept the HTTP request open.
-3. The backend processed the whole PDF immediately.
-4. The API returned the final answer.
-
-That is acceptable for a small demo or a few pages.
-
-It becomes risky for hundreds of invoices because:
-
-1. A request can stay open for too long.
-2. API workers get blocked while doing heavy processing.
-3. Large PDFs can use too much memory if every page is rendered into an image.
-4. If the server restarts, the in-progress request is lost.
-5. Users cannot easily track multiple PDFs.
-6. Scaling requires more than just adding one bigger server.
-
-The new architecture treats processing as background jobs.
-
-That means:
-
-1. The user uploads PDFs.
-2. The API stores them safely.
-3. The API creates job records.
-4. The API sends job IDs to a queue.
-5. Worker processes pick jobs from the queue.
-6. Workers process PDFs independently.
-7. Results are saved.
-8. The frontend polls job status and shows results when ready.
-
-This is closer to an industry-standard architecture for document processing systems.
-
-## 3. High-Level Flow
-
-The complete flow looks like this:
+The current architecture is:
 
 ```text
-User
-  -> Next.js frontend
-  -> FastAPI backend
-  -> durable job storage
-  -> Redis queue
+Next.js frontend
+  -> FastAPI API
+  -> file-backed durable storage
+  -> Redis broker
   -> Celery worker
   -> LangGraph claim pipeline
-  -> result storage
-  -> frontend result viewer
+  -> stored JSON result
+  -> frontend polling and inspection
 ```
 
-Now let us explain each step slowly.
+The frontend is an operator dashboard. It uploads files, lists jobs, shows status counts, and displays extraction results.
 
-## 4. Step 1: User Opens The Frontend
+The backend exposes upload and status APIs. It validates PDFs, stores uploads, creates durable job records, and enqueues background work.
 
-The frontend lives inside:
+The worker executes the actual document-processing pipeline. That pipeline uses LangGraph to classify pages, route pages to specialist agents, and aggregate the final output.
+
+## 3. Why Background Jobs Were Chosen
+
+The older synchronous model was:
+
+```text
+POST /api/process
+  -> keep request open
+  -> process the full PDF
+  -> return final JSON
+```
+
+That model is easy to demo but weak for real claim processing.
+
+Problems with the synchronous model:
+
+- HTTP requests can time out before processing completes.
+- API workers are occupied by slow CPU, OCR, PDF, and LLM work.
+- A server restart loses the in-flight request.
+- The user cannot track many PDFs at once.
+- Retry, observability, and partial failure handling are harder.
+- Scaling the API also accidentally scales heavy processing, even if only workers need more capacity.
+
+The asynchronous model is:
+
+```text
+POST /api/claims/batch
+  -> validate files
+  -> store uploads
+  -> create job records
+  -> enqueue job IDs
+  -> return quickly
+
+Celery worker
+  -> read one job
+  -> process PDF
+  -> save result
+  -> update status
+```
+
+This approach was chosen because document extraction is naturally a long-running workflow. The API should be fast and predictable; the worker should absorb the slow work.
+
+Why not only use the synchronous endpoint?
+
+- It is acceptable for a small assignment demo.
+- It is not reliable for batches, high page counts, retries, or production load.
+- It couples user experience to backend processing time.
+
+Why not use WebSockets immediately?
+
+- Polling is simpler and good enough for a job dashboard.
+- Job status changes are low frequency.
+- WebSockets add connection lifecycle concerns, auth concerns, and infrastructure complexity.
+- WebSockets can be added later without changing the core job model.
+
+## 4. Frontend Design
+
+Frontend files live under:
 
 ```text
 frontend/
 ```
 
-It is a Next.js application.
-
-Next.js is used because it gives a modern React application structure, production builds, routing, TypeScript support, and good deployment options.
-
-The main page is:
+Key files:
 
 ```text
 frontend/app/page.tsx
-```
-
-This page shows:
-
-1. A batch upload panel.
-2. Recent job statistics.
-3. A table of recent claim jobs.
-4. A result inspector.
-
-The frontend does not process PDFs itself. It only sends files to the backend and displays status/results.
-
-That is important because PDF parsing, LLM calls, and medical document extraction belong on the backend, not inside the browser.
-
-## 5. Step 2: User Uploads One Or Many PDFs
-
-The upload panel allows multiple PDF files.
-
-When the user selects files and clicks the queue button, the frontend calls:
-
-```text
-POST /api/claims/batch
-```
-
-The API client code is in:
-
-```text
 frontend/lib/api.ts
+frontend/lib/demo-data.ts
 ```
 
-That file contains typed functions such as:
+`page.tsx` is the main dashboard.
 
-```text
-submitClaims()
-listJobs()
-getClaimResult()
-```
+It contains:
 
-This keeps API calling logic separate from UI rendering logic.
+- batch upload controls
+- job statistics
+- recent job table
+- demo data controls
+- result summary
+- raw JSON inspector
 
-That is a good architecture choice because if the backend URL or API shape changes, we mostly update the API client instead of rewriting the whole UI.
+`api.ts` contains typed API helpers:
 
-## 6. Step 3: FastAPI Receives The Upload
+- `listJobs()`
+- `submitClaims()`
+- `getClaimResult()`
 
-The backend entry point is:
+This separation is intentional. React components should not know every URL and parsing rule. If the backend URL changes, the API client can change in one place.
 
-```text
-main.py
-```
+`demo-data.ts` contains deterministic demo jobs and outputs. The demo uses the same TypeScript types as the live API:
 
-`main.py` creates the FastAPI app, configures CORS, and includes the API router.
+- `ClaimJob`
+- `ClaimResponse`
 
-The route code lives in:
+That matters because the demo does not create a separate fake UI path. It exercises the same dashboard rendering logic used by real backend results.
+
+## 5. Why Demo Data Is Frontend-Local
+
+The demo data was added in the frontend instead of the backend.
+
+This was chosen because the request was to show sample outputs from the UI. Frontend-local demo data has several practical benefits:
+
+- no database setup is required
+- no Redis setup is required
+- no worker setup is required
+- demos work offline
+- screenshots and walkthroughs are deterministic
+- the real backend API remains clean
+
+Why not seed the backend storage directly?
+
+- File-backed storage is implementation-specific.
+- Seeding backend files would mix demo artifacts with real job state.
+- It would require users to know where `DATA_DIR` points.
+- It would not help when the frontend is reviewed independently.
+
+Why not make the demo data completely separate from real types?
+
+- Separate demo shapes often drift from real API contracts.
+- Using the same types gives compile-time feedback when the API model changes.
+- It makes the demo useful as a lightweight contract example.
+
+## 6. Backend API Layer
+
+The backend route definitions are in:
 
 ```text
 app/api/routes.py
 ```
 
-Important endpoints are:
+Important endpoints:
 
 ```text
+POST /api/process
 POST /api/claims
 POST /api/claims/batch
 GET /api/claims
 GET /api/claims/{job_id}
 GET /api/claims/{job_id}/result
-POST /api/process
 ```
 
-`POST /api/process` still exists for compatibility with the older synchronous flow.
+`POST /api/process` is kept for compatibility. It processes one uploaded PDF synchronously and returns the final response.
 
-The recommended production path is the asynchronous job API:
+The preferred flow is:
 
 ```text
-POST /api/claims
 POST /api/claims/batch
+GET /api/claims
+GET /api/claims/{job_id}/result
 ```
 
-## 7. Step 4: Backend Validates The PDF
+The batch endpoint accepts many files and returns job metadata. Rejected files are reported individually, so one bad PDF does not have to reject the whole batch.
 
-Before accepting a file, the backend checks:
+## 7. Validation Strategy
 
-1. The file name ends with `.pdf`.
-2. The file is not empty.
-3. The file size is within the configured maximum.
-4. The PDF can be opened by PyMuPDF.
-5. The page count is within the configured maximum.
+Upload validation checks:
 
-These limits are configured in:
+- file name exists
+- file extension is `.pdf`
+- file is not empty
+- file size is under the configured limit
+- PyMuPDF can open the file
+- page count is under the configured limit
 
-```text
-app/core/config.py
-```
+The validation logic protects the system from:
 
-Important settings include:
+- non-PDF uploads
+- corrupted files
+- huge files
+- PDFs with too many pages
+- expensive inputs that could exhaust worker memory
 
-```text
-MAX_UPLOAD_BYTES
-MAX_PDF_PAGES
-DATA_DIR
-CELERY_BROKER_URL
-CELERY_RESULT_BACKEND
-TASK_TIME_LIMIT_SECONDS
-```
+Why validate before creating a job?
 
-Validation matters because a production system must protect itself from accidentally huge uploads, corrupted PDFs, and inputs that would consume too much memory or processing time.
+- Invalid files should not enter the queue.
+- Workers should spend time on processable jobs.
+- Users should get quick feedback for rejected files.
 
-## 8. Step 5: Backend Creates A Job
+Why not trust browser-side validation?
 
-Once the PDF is valid, the backend creates a job record.
+- Browser validation can be bypassed.
+- API validation is the real security and reliability boundary.
 
-The job model is defined in:
+## 8. Storage Boundary
 
-```text
-app/core/schemas.py
-```
-
-The job contains fields like:
-
-```text
-job_id
-claim_id
-filename
-status
-created_at
-updated_at
-page_count
-file_size_bytes
-error
-result_url
-```
-
-The status can be:
-
-```text
-queued
-processing
-succeeded
-partial
-failed
-```
-
-This is useful because users need visibility. A long-running backend cannot feel like a black box.
-
-## 9. Step 6: Backend Stores The Uploaded PDF
-
-The storage code lives in:
+Storage code lives in:
 
 ```text
 app/services/storage.py
 ```
 
-Right now it uses file-backed storage.
-
-That means PDFs, job metadata, and results are stored in folders under:
-
-```text
-data/
-```
-
-The structure is:
+Current storage uses local files:
 
 ```text
 data/
@@ -251,108 +250,87 @@ data/
   results/
 ```
 
-This was chosen because it is simple, easy to understand, and works locally without requiring a database.
+The storage layer saves:
 
-In a larger production setup, this same storage boundary can later be replaced with:
+- uploaded PDF bytes
+- job metadata JSON
+- final result JSON
 
-1. S3 or GCS for uploaded PDFs.
-2. PostgreSQL for job metadata.
-3. PostgreSQL or object storage for final JSON results.
+This file-backed approach was chosen for local development and assignment review because it is easy to run without a database.
 
-The important architecture point is that the rest of the app talks to `ClaimStorage`, not directly to random files everywhere.
+The important design choice is the boundary, not the file format. Other modules call `ClaimStorage` instead of manually writing random files. That makes a future migration easier.
 
-That makes future migration easier.
+Production replacement options:
 
-## 10. Step 7: Backend Sends The Job To The Queue
+- uploaded PDFs in S3, GCS, or Azure Blob Storage
+- job metadata in PostgreSQL
+- final JSON results in PostgreSQL or object storage
+- job status indexed by claim ID, user ID, tenant ID, and creation date
 
-After storing the file and metadata, the backend calls Celery:
+Why not start with PostgreSQL immediately?
 
-```text
-process_claim_job.delay(job.job_id)
-```
+- It adds setup cost.
+- The MVP does not need complex querying yet.
+- The storage abstraction keeps the migration path open.
 
-The Celery app is defined in:
+Why not store PDFs in the database?
+
+- Large binary objects make database backup and replication heavier.
+- Object storage is cheaper and better suited for file payloads.
+- Databases are better for metadata, indexing, audit trails, and status.
+
+## 9. Queue And Worker Layer
+
+Celery is used for background execution.
+
+Files:
 
 ```text
 app/workers/celery_app.py
-```
-
-The actual task is in:
-
-```text
 app/workers/tasks.py
 ```
 
-Celery is used because document processing is slow compared with normal API responses.
+Redis is used as:
 
-The API should be fast at accepting uploads and returning job IDs.
+- Celery broker
+- Celery result backend
 
-The worker should do the heavy processing.
+Docker Compose starts Redis, the API, and the worker together.
 
-This separation lets us scale in two directions:
+Why Celery?
 
-1. Add more API containers if many users upload at once.
-2. Add more worker containers if many PDFs need processing.
+- It is a proven Python task queue.
+- It supports worker concurrency, retries, time limits, and separate worker processes.
+- It lets the API remain responsive while workers process PDFs.
 
-## 11. Step 8: Redis Holds The Queue
+Why Redis?
 
-Redis is used as the Celery broker and result backend.
+- It is simple to run locally.
+- It is fast enough for queue broker workloads.
+- It works well with Celery.
 
-In Docker Compose, Redis is defined in:
+Why not run processing in FastAPI background tasks?
 
-```text
-docker-compose.yml
-```
+- FastAPI background tasks still live inside the API process.
+- They are not durable enough for serious queue workloads.
+- They make worker scaling and retry control weaker.
+- A process restart can interrupt work without the same queue semantics.
 
-The API and worker both point to Redis.
+Why not use Kafka?
 
-The API pushes jobs into Redis.
+- Kafka is excellent for event streaming, but heavier than needed here.
+- This project needs task dispatch, not a full event log.
+- Celery plus Redis is a better MVP tradeoff.
 
-The worker pulls jobs from Redis.
+## 10. Pipeline Orchestration With LangGraph
 
-Redis is fast and common for queue workloads.
-
-For a startup MVP, Redis plus Celery is a practical and industry-recognized choice.
-
-## 12. Step 9: Worker Starts Processing
-
-The worker task starts by updating the job status:
-
-```text
-processing
-```
-
-Then it reads the uploaded PDF bytes from storage.
-
-Then it calls:
-
-```text
-process_claim_pdf()
-```
-
-That function lives in:
-
-```text
-app/services/processor.py
-```
-
-This service boundary is important.
-
-The API route and worker task should not both duplicate pipeline logic.
-
-Instead, they both call the same processing service.
-
-That keeps behavior consistent.
-
-## 13. Step 10: LangGraph Runs The Claim Pipeline
-
-The pipeline graph is defined in:
+The graph is defined in:
 
 ```text
 app/core/graph.py
 ```
 
-The graph shape is:
+Conceptual graph:
 
 ```text
 Segregator
@@ -362,39 +340,45 @@ Segregator
   -> Aggregator
 ```
 
-In concept:
-
-1. The segregator decides what each page is.
-2. The specialist agents extract data from only their assigned pages.
-3. The aggregator combines all outputs into one response.
-
-LangGraph is used because the pipeline is agent-like and stateful.
-
-Each node reads and writes shared claim state.
-
-That shared state is represented by:
-
-```text
-ClaimState
-```
-
-which is defined in:
+The shared state model is `ClaimState` in:
 
 ```text
 app/core/schemas.py
 ```
 
-## 14. Step 11: Segregator Classifies Pages
+LangGraph is useful because the pipeline has multiple stateful steps:
 
-The segregator code is:
+- classify pages
+- create a document type to page map
+- route pages to different extractors
+- merge multiple agent outputs
+- preserve errors
+- produce a final response
+
+Why LangGraph instead of plain function calls?
+
+- Plain function calls work for a tiny pipeline.
+- LangGraph gives a clearer execution model for multi-step agent workflows.
+- State transitions are explicit.
+- Parallel or conditional routing can be added more naturally.
+- The graph structure documents the pipeline shape.
+
+Why not one giant agent prompt?
+
+- One prompt over the entire PDF is harder to debug.
+- It can waste context on irrelevant pages.
+- Billing, identity, and clinical extraction have different schemas.
+- Smaller specialist agents reduce prompt complexity and can fail independently.
+
+## 11. Page Classification
+
+The segregator lives in:
 
 ```text
 app/agents/segregator.py
 ```
 
-Its job is to classify every page into one document type.
-
-Document types include:
+It classifies pages into:
 
 ```text
 claim_forms
@@ -408,193 +392,143 @@ cash_receipt
 other
 ```
 
-The segregator first extracts text from each page using:
+The project uses a text-first strategy:
+
+1. Extract text from the PDF page.
+2. Apply local keyword and structure heuristics.
+3. Use the LLM only when needed.
+4. Render page images lazily for visual fallback.
+
+This matters because many hospital bills and forms are text-based PDFs. Rendering every page to an image would be slower and more memory intensive.
+
+Why text-first?
+
+- Text is smaller than images.
+- Text extraction is faster than image rendering.
+- Text-only LLM prompts are cheaper than vision prompts.
+- Deterministic heuristics are easier to debug.
+
+Why not always use OCR?
+
+- OCR is useful for scanned pages.
+- OCR is unnecessary for digital PDFs with embedded text.
+- OCR adds latency and can introduce recognition errors.
+
+Why not always use vision LLM calls?
+
+- Vision calls are slower and more expensive.
+- They add rate-limit risk.
+- They can be unnecessary for clean text PDFs.
+- They make large batch processing less predictable.
+
+## 12. Page Routing
+
+After classification, the pipeline creates a document page map:
 
 ```text
-extract_page_texts()
+document_type -> list of page indexes
 ```
 
-from:
+Routing rules are defined in `AGENT_DOCUMENT_MAP`:
 
 ```text
-app/utils/pdf_utils.py
+identity_document -> id_agent
+claim_forms -> id_agent
+cheque_or_bank_details -> id_agent
+discharge_summary -> discharge_agent
+prescription -> discharge_agent
+itemized_bill -> bill_agent
+cash_receipt -> bill_agent
+investigation_report -> bill_agent
+other -> id_agent
 ```
 
-Then it tries local heuristic classification.
+This design avoids sending the full PDF to every agent.
 
-Heuristics are simple keyword-based rules.
+Benefits:
 
-For example, if a page contains words like invoice, bill number, subtotal, and total amount, it is probably an itemized bill.
+- lower token usage
+- lower image rendering cost
+- better extraction focus
+- easier debugging
+- smaller blast radius when one document type is classified incorrectly
 
-This is faster and cheaper than calling an LLM for every page.
+Why route pages instead of asking each agent to search the full PDF?
 
-## 15. Why Text-First Classification Matters
+- Searching the full PDF duplicates work.
+- Agents can be distracted by unrelated pages.
+- Large PDFs can exceed model context limits.
+- Per-agent inputs are easier to test.
 
-Many invoices are text-based PDFs.
+## 13. Extraction Agents
 
-If a PDF page already has extractable text, rendering it into an image is often unnecessary.
-
-Rendering every page into an image is expensive because:
-
-1. Images use much more memory than text.
-2. Base64 image strings are large.
-3. Vision model calls are slower.
-4. Vision model calls can cost more.
-
-The optimized backend now renders page images lazily.
-
-That means:
-
-1. Extract text first.
-2. Use heuristics where possible.
-3. Use text-only LLM calls when page text is enough.
-4. Render images only for ambiguous or low-text pages that need vision.
-
-This is one of the biggest improvements for hundreds of invoice pages.
-
-## 16. Step 12: Page Routing
-
-After classification, the pipeline builds a map like:
+The extraction agents are:
 
 ```text
-document_type -> list of page numbers
+app/agents/id_agent.py
+app/agents/discharge_agent.py
+app/agents/bill_agent.py
 ```
 
-For example:
+The ID agent extracts:
 
-```text
-itemized_bill -> [3, 4, 5, 6]
-identity_document -> [0, 1]
-discharge_summary -> [2]
-```
+- patient name
+- date of birth
+- gender
+- contact information
+- policy number
+- insurance provider
+- identity number
+- bank details
 
-The mapping from document type to agent is defined in:
+The discharge agent extracts:
 
-```text
-AGENT_DOCUMENT_MAP
-```
+- admission date
+- discharge date
+- diagnosis
+- hospital name
+- physician
+- treatment summary
+- discharge medication
+- follow-up instructions
 
-inside:
+The bill agent extracts:
+
+- bill number
+- bill date
+- hospital name
+- line items
+- subtotal
+- tax
+- discount
+- insurance payment
+- total amount
+- patient responsibility
+
+The agents use schema-oriented outputs defined in:
 
 ```text
 app/core/schemas.py
 ```
 
-This is important because specialist agents should not process the whole PDF.
+Why use Pydantic schemas?
 
-The bill agent should process bill pages.
+- They make the output contract explicit.
+- They support validation and serialization.
+- They make the API response predictable.
+- They help frontend TypeScript types mirror backend shapes.
 
-The ID agent should process identity, claim form, and bank pages.
+Why keep `extra_fields`?
 
-The discharge agent should process discharge summary and prescription pages.
+- Real medical documents vary a lot.
+- Some useful fields are not known in advance.
+- `extra_fields` preserves additional information without breaking the schema.
 
-This saves time, reduces cost, and improves accuracy.
+The tradeoff is that `extra_fields` must be monitored. If the same field appears often, it should graduate into the formal schema.
 
-## 17. Step 13: ID Agent Extracts Identity Data
+## 14. Aggregation
 
-The ID agent lives in:
-
-```text
-app/agents/id_agent.py
-```
-
-It extracts fields like:
-
-```text
-patient_name
-date_of_birth
-gender
-address
-contact_number
-policy_number
-insurance_provider
-bank_account_number
-bank_name
-ifsc_routing_number
-swift_code
-```
-
-It first tries deterministic text extraction from:
-
-```text
-app/utils/text_extractors.py
-```
-
-If deterministic extraction finds enough signal, it returns without calling the LLM.
-
-If not, it uses the LLM.
-
-If text is enough, it uses a text-only LLM call.
-
-If text is not enough, it renders only the needed pages and uses a vision call.
-
-## 18. Step 14: Discharge Agent Extracts Clinical Data
-
-The discharge agent lives in:
-
-```text
-app/agents/discharge_agent.py
-```
-
-It extracts fields like:
-
-```text
-admission_date
-discharge_date
-length_of_stay
-final_diagnosis
-attending_physician
-hospital_name
-treatment_summary
-discharge_medications
-prescriptions
-follow_up_instructions
-```
-
-It uses the same text-first strategy:
-
-1. Try deterministic extraction.
-2. Use text-only LLM if possible.
-3. Use vision only when needed.
-
-## 19. Step 15: Bill Agent Extracts Billing Data
-
-The bill agent lives in:
-
-```text
-app/agents/bill_agent.py
-```
-
-It extracts fields like:
-
-```text
-bill_number
-bill_date
-hospital_name
-patient_name
-line_items
-subtotal
-tax
-discount
-insurance_payment
-total_amount
-patient_responsibility
-payment_method
-```
-
-Billing can be the biggest part of a claim.
-
-A claim may contain many pages of itemized bills.
-
-That is why billing extraction is chunked.
-
-The code processes billing pages in smaller groups instead of sending everything at once.
-
-This prevents a single huge model call and makes failures easier to isolate.
-
-## 20. Step 16: Aggregator Builds Final Response
-
-The aggregator lives in:
+The aggregator is in:
 
 ```text
 app/agents/aggregator.py
@@ -602,31 +536,47 @@ app/agents/aggregator.py
 
 It combines:
 
-1. Page classification results.
-2. Identity extraction.
-3. Discharge extraction.
-4. Bill extraction.
-5. Errors.
-6. Processing summary.
+- page classifications
+- identity extraction
+- discharge extraction
+- billing extraction
+- unique errors
+- processing summary
 
-It returns:
+The final response model is:
 
 ```text
 ClaimResponse
 ```
 
-The response contains:
+The aggregator sets status as:
+
+- `success` when extraction succeeds without errors
+- `partial` when some data exists but errors occurred
+- `failed` when no meaningful extraction exists
+
+Why aggregate at the end?
+
+- It creates a single stable API response.
+- It avoids leaking internal graph state to clients.
+- It allows each agent to evolve independently.
+- It centralizes final status logic.
+
+## 15. Error Handling Strategy
+
+The system distinguishes job status from response status.
+
+Job status:
 
 ```text
-claim_id
-status
-page_classification
-extracted_data
-errors
-processing_summary
+queued
+processing
+succeeded
+partial
+failed
 ```
 
-The status can be:
+Response status:
 
 ```text
 success
@@ -634,297 +584,293 @@ partial
 failed
 ```
 
-The job status later maps this into:
+The job status is for the queue and dashboard. The response status is for the extraction result itself.
+
+The pipeline collects errors instead of immediately throwing for every recoverable issue. That supports partial outputs, which are important in document processing. A single unreadable prescription page should not discard the extracted identity and bill data.
+
+Why allow partial results?
+
+- Real PDFs are messy.
+- Some pages may be scanned poorly.
+- Users still need usable extracted data.
+- Review workflows can resolve missing fields manually.
+
+## 16. Frontend Result Display
+
+The frontend now shows:
+
+- status metrics
+- a job table
+- demo controls
+- a structured result summary
+- raw JSON
+
+The structured result summary is for quick human scanning. The raw JSON remains useful for developers and API reviewers.
+
+Why keep raw JSON?
+
+- It exposes the exact API response.
+- It helps validate schemas quickly.
+- It makes demo output transparent.
+- It is useful when adding new fields.
+
+Why not only show raw JSON?
+
+- Operators need fast summaries.
+- Claim review usually starts with patient, policy, diagnosis, and total amount.
+- A visual summary reduces cognitive load.
+
+## 17. Configuration
+
+Important configuration lives in:
 
 ```text
-succeeded
-partial
-failed
+app/core/config.py
 ```
 
-## 21. Step 17: Worker Saves The Result
-
-After processing finishes, the worker writes the final JSON response into:
+Examples:
 
 ```text
-data/results/
+GOOGLE_API_KEY
+DATA_DIR
+MAX_UPLOAD_BYTES
+MAX_PDF_PAGES
+CELERY_BROKER_URL
+CELERY_RESULT_BACKEND
+TASK_TIME_LIMIT_SECONDS
 ```
 
-Then it updates the job metadata.
+Configuration is externalized so different environments can change behavior without editing code.
 
-If processing succeeded:
+Why environment variables?
 
-```text
-status = succeeded
+- They work well in Docker and cloud platforms.
+- They keep secrets out of source code.
+- They let production limits differ from development limits.
+
+## 18. Current Strengths
+
+The project already has several good architecture choices:
+
+- asynchronous job processing
+- batch upload support
+- explicit schemas
+- storage abstraction
+- worker/API separation
+- page-level classification
+- specialist extraction agents
+- text-first optimization
+- lazy image rendering
+- partial result support
+- frontend polling dashboard
+- deterministic demo data
+
+These choices make the project more realistic than a one-endpoint PDF demo.
+
+## 19. Current Limitations
+
+The project is still an MVP.
+
+Important limitations:
+
+- local file storage is not ideal for multi-server production
+- no authentication or tenant isolation
+- no role-based access control
+- no database indexes for searching jobs
+- no manual review workflow
+- no confidence score normalization across all fields
+- limited observability beyond logs
+- no automated frontend tests yet
+- no golden dataset evaluation for extraction quality
+- no PII redaction policy
+- no audit trail for who viewed or changed a claim
+
+These are not failures. They are normal next steps when moving from assignment-quality architecture toward production.
+
+## 20. Recommended Improvements
+
+### 20.1 Storage And Data Model
+
+Move job metadata to PostgreSQL.
+
+Useful tables:
+
+- claims
+- claim_jobs
+- claim_documents
+- claim_results
+- extraction_errors
+- audit_events
+
+Store PDF files in object storage with signed URLs.
+
+Benefits:
+
+- better querying
+- better durability
+- safer multi-instance deployment
+- retention policies
+- easier audit trails
+
+### 20.2 Authentication And Authorization
+
+Add authentication before exposing real medical documents.
+
+Recommended controls:
+
+- user login
+- organization or tenant ID
+- role-based permissions
+- access logging
+- per-claim authorization checks
+
+Medical claim data is sensitive. Access control should be treated as a core feature before production use.
+
+### 20.3 Human Review Workflow
+
+Add a review screen where operators can:
+
+- compare extracted values with source pages
+- edit incorrect fields
+- mark confidence issues
+- approve or reject extracted output
+- export a reviewed final JSON
+
+This is important because AI extraction should usually be reviewed before financial or insurance decisions.
+
+### 20.4 Better Field Confidence
+
+The current page classification has confidence, but field-level confidence should be added.
+
+Example:
+
+```json
+{
+  "patient_name": {
+    "value": "Aarya Mehta",
+    "confidence": 0.96,
+    "source_pages": [1],
+    "source_text": "Patient Name: Aarya Mehta"
+  }
+}
 ```
 
-If some errors happened but partial data exists:
+This improves review, auditing, and downstream trust.
 
-```text
-status = partial
-```
+### 20.5 Source Citations
 
-If processing failed completely:
+Each extracted field should reference where it came from:
 
-```text
-status = failed
-```
+- page number
+- bounding box if OCR is available
+- source snippet
+- extraction method
 
-This makes results durable.
+This allows reviewers to verify outputs quickly.
 
-The frontend can fetch the result later even if the first browser tab was closed.
+### 20.6 Evaluation Dataset
 
-## 22. Step 18: Frontend Polls Jobs
+Create a small private test dataset:
 
-The frontend periodically calls:
+- 20 clean digital PDFs
+- 20 scanned PDFs
+- 20 mixed-quality PDFs
+- expected JSON outputs
 
-```text
-GET /api/claims
-```
+Then run regression tests after prompt, heuristic, or parser changes.
 
-This returns recent jobs.
+Track metrics:
 
-If any job is `queued` or `processing`, the frontend refreshes every few seconds.
+- page classification accuracy
+- field extraction precision
+- field extraction recall
+- total processing time
+- LLM cost per claim
+- partial failure rate
 
-Polling is simple and reliable for this kind of dashboard.
+### 20.7 Observability
 
-Later, this can be upgraded to WebSockets or Server-Sent Events if real-time updates become important.
+Add structured logging and metrics.
 
-For a startup MVP, polling is easier to operate.
+Useful metrics:
 
-## 23. Step 19: User Inspects Result
+- jobs queued
+- jobs processing
+- jobs failed
+- average processing time
+- average pages per claim
+- LLM calls per claim
+- token usage
+- PDF rendering time
+- extraction errors by agent
 
-When a job is finished or partial, the user clicks Inspect.
+Recommended tools:
 
-The frontend calls:
+- OpenTelemetry
+- Prometheus
+- Grafana
+- Sentry
 
-```text
-GET /api/claims/{job_id}/result
-```
+### 20.8 Queue Robustness
 
-The backend reads the result JSON from storage and returns it.
+Improve background processing with:
 
-The frontend shows it in the result inspector.
+- retries for transient failures
+- dead-letter handling
+- idempotent task execution
+- worker concurrency tuning
+- per-job timeout policies
+- queue priority for urgent claims
 
-This helps operators quickly verify extracted data.
+Idempotency matters because a worker may retry a job after failure. Saving results should not corrupt the job if the same task runs twice.
 
-## 24. Why FastAPI
+### 20.9 Frontend Improvements
 
-FastAPI is used because:
+Useful frontend next steps:
 
-1. It is fast.
-2. It has strong support for async endpoints.
-3. It integrates well with Pydantic models.
-4. It automatically creates Swagger docs.
-5. It is widely used for Python APIs.
+- filter jobs by status
+- search by claim ID or filename
+- show upload progress
+- add pagination
+- add field-level result tabs
+- add side-by-side document preview
+- add manual correction forms
+- export result JSON
+- compare original and reviewed output
 
-For this project, FastAPI is a good fit because the backend is Python-heavy due to PDF parsing, LangGraph, and LLM processing.
+The current dashboard is a good operator starting point, but a production workflow needs review and correction.
 
-## 25. Why Pydantic
+### 20.10 Security And Compliance
 
-Pydantic is used for schemas.
+Before real medical data is used:
 
-Schemas define the shape of data.
+- encrypt stored PDFs
+- encrypt database volumes
+- redact sensitive logs
+- avoid logging extracted PII
+- enforce HTTPS
+- rotate secrets
+- define retention policies
+- add audit logs
+- document data deletion behavior
 
-For example:
+Medical claims often contain personal, financial, and clinical information. Security cannot be left as a deployment detail.
 
-```text
-ClaimJob
-ClaimState
-ClaimResponse
-IdentityData
-ItemizedBillData
-DischargeSummaryData
-```
+## 21. Summary
 
-Pydantic helps by:
+This project is designed around a practical document-processing architecture.
 
-1. Validating data.
-2. Giving typed Python objects.
-3. Producing clean JSON responses.
-4. Making API contracts easier to understand.
+The key technical idea is separation of responsibilities:
 
-## 26. Why Celery
+- the frontend manages operator interaction
+- the API validates and creates jobs
+- storage preserves uploads and results
+- the queue decouples slow processing from HTTP requests
+- workers run expensive extraction
+- LangGraph coordinates multi-agent document understanding
+- schemas define stable contracts
+- aggregation returns one consistent result
 
-Celery is used for background jobs.
+The chosen approach is more complex than a single endpoint, but that complexity solves real problems: long-running processing, batching, failures, scaling, and result visibility.
 
-Document processing can take seconds or minutes.
-
-An HTTP request should not stay open that long.
-
-Celery lets the API hand work to workers.
-
-This makes the backend more scalable and more reliable.
-
-## 27. Why Redis
-
-Redis is used as the queue.
-
-The API places job messages into Redis.
-
-The worker reads job messages from Redis.
-
-Redis is fast, popular, and simple to run locally with Docker.
-
-## 28. Why Docker Compose
-
-The file:
-
-```text
-docker-compose.yml
-```
-
-starts:
-
-1. Redis.
-2. FastAPI API server.
-3. Celery worker.
-4. Shared data volume.
-
-This is useful because the real system is not one process anymore.
-
-It is multiple services working together.
-
-Docker Compose makes that easy to run during development and demos.
-
-## 29. Why Next.js
-
-Next.js is used for the frontend because:
-
-1. It is a production-grade React framework.
-2. It supports TypeScript well.
-3. It gives good build tooling.
-4. It has a clean app directory structure.
-5. It can be deployed separately from the backend.
-
-The frontend is intentionally not a marketing landing page.
-
-It is an operational dashboard.
-
-Users of this product need to upload, monitor, inspect, and repeat.
-
-## 30. Why Tailwind CSS
-
-Tailwind CSS is used for styling.
-
-The project avoids raw custom CSS for the dashboard.
-
-Tailwind keeps styling close to the component markup and makes it fast to build consistent UI.
-
-For a small team, this reduces context switching between component files and separate CSS files.
-
-## 31. Why The UI Is Dense And Operational
-
-This product is for claim document processing.
-
-That means the UI should feel like a work tool.
-
-The frontend uses:
-
-1. Job tables.
-2. Status pills.
-3. Metrics.
-4. Upload controls.
-5. JSON result inspection.
-
-It avoids a decorative landing-page style because operators need clarity and speed.
-
-## 32. Important Scalability Choices
-
-The major scalability choices are:
-
-1. Async job submission instead of blocking HTTP requests.
-2. Celery workers for distributed processing.
-3. Redis queue for decoupling API and workers.
-4. Durable job metadata and result storage.
-5. Text-first extraction.
-6. Lazy PDF page image rendering.
-7. Page routing to specialist agents.
-8. Chunked billing extraction.
-9. Batch upload endpoints.
-10. Frontend polling for long-running jobs.
-
-Together, these make the project more capable of handling hundreds of invoices.
-
-## 33. What Happens If There Are Hundreds Of Invoices
-
-If the user uploads hundreds of PDFs:
-
-1. The frontend sends them to the batch endpoint.
-2. The backend validates each file.
-3. Each accepted file becomes a separate job.
-4. Jobs are pushed into Redis.
-5. Workers pull jobs one by one.
-6. More workers can be added to process jobs faster.
-7. The frontend keeps showing statuses.
-
-This is much better than one giant synchronous request.
-
-## 34. What Happens If One Job Fails
-
-If one PDF fails:
-
-1. The worker marks only that job as failed.
-2. Other jobs continue processing.
-3. The frontend shows the failed status.
-4. The job error is stored in metadata.
-
-This isolation is important.
-
-One bad invoice should not break the entire batch.
-
-## 35. What Happens If A Worker Crashes
-
-Celery is configured with late acknowledgements.
-
-That means a task is acknowledged after work is handled, not before.
-
-This helps avoid losing jobs if a worker dies during processing.
-
-In a full production environment, this should be paired with strong broker settings, monitoring, retries, and idempotent storage writes.
-
-## 36. What Could Be Improved Next
-
-Good next steps are:
-
-1. Replace file-backed job storage with PostgreSQL.
-2. Replace local uploaded PDF storage with S3 or GCS.
-3. Add authentication and role-based access.
-4. Add tenant/company separation.
-5. Add automated tests for API routes and storage.
-6. Add job retry controls.
-7. Add observability with structured logs, metrics, and traces.
-8. Add data review/edit screens instead of only JSON.
-9. Add export to CSV, Excel, or claim management systems.
-10. Add WebSocket/SSE job updates if polling becomes too slow.
-
-## 37. Mental Model For Beginners
-
-Think of the system like a hospital document office.
-
-The frontend is the reception desk.
-
-The FastAPI backend is the clerk who accepts documents and gives a tracking number.
-
-Redis is the tray where pending work is placed.
-
-Celery workers are the staff members who pick files from the tray.
-
-LangGraph is the internal checklist for reading a file.
-
-The segregator is the person who sorts pages into piles.
-
-The ID agent reads ID and policy papers.
-
-The discharge agent reads medical summary papers.
-
-The bill agent reads invoices and receipts.
-
-The aggregator combines everyone’s notes into one final report.
-
-The storage folder is the filing cabinet.
-
-The frontend result viewer is where the user reads the final report.
-
-That is the whole system from beginning to end.
-
+The next major step is not another extraction prompt. The next major step is making the system reviewable, measurable, secure, and production-durable.
