@@ -359,6 +359,15 @@ export function getProcessedDemoJobs(): ClaimJob[] {
   return clone(demoClaims.map((claim) => claim.processedJob));
 }
 
+export function getDemoSummary() {
+  return {
+    claims: demoClaims.length,
+    pages: demoClaims.reduce((total, claim) => total + claim.job.page_count, 0),
+    successful: demoClaims.filter((claim) => claim.processedJob.status === "succeeded").length,
+    partial: demoClaims.filter((claim) => claim.processedJob.status === "partial").length
+  };
+}
+
 export function getDemoResult(jobId: string): ClaimResponse | null {
   const claim = demoClaims.find((item) => item.job.job_id === jobId);
   return claim ? clone(claim.result) : null;
