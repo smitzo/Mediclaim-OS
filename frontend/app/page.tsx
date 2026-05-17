@@ -14,7 +14,7 @@ import {
   UploadCloud
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, getClaimResult, listJobs, submitClaims } from "@/lib/api";
-import { getDemoJobs, getDemoResult, getProcessedDemoJobs, isDemoJob } from "@/lib/demo-data";
+import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
   queued: "bg-slate-100 text-slate-700 ring-slate-200",
@@ -58,10 +58,11 @@ export default function Home() {
     if (!demoLoaded) {
       return "Live API";
     }
+    const summary = getDemoSummary();
     if (demoProcessed) {
-      return "Demo results ready";
+      return `${summary.claims} demo claims processed`;
     }
-    return "Demo jobs loaded";
+    return `${summary.claims} demo claims, ${summary.pages} pages`;
   }, [demoLoaded, demoProcessed]);
 
   const refreshJobs = useCallback(async () => {
