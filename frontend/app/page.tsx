@@ -14,7 +14,7 @@ import {
   UploadCloud
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, getClaimResult, listJobs, submitClaims } from "@/lib/api";
-import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, isDemoJob } from "@/lib/demo-data";
+import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
   queued: "bg-slate-100 text-slate-700 ring-slate-200",
@@ -97,6 +97,7 @@ export default function Home() {
     setProcessingDemo(true);
     setError(null);
     setResult(null);
+    setJobs(getProcessingDemoJobs());
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     const nextJobs = getProcessedDemoJobs();
     const nextSelectedJob = nextJobs[0] ?? null;
