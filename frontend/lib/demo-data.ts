@@ -359,6 +359,14 @@ export function getProcessedDemoJobs(): ClaimJob[] {
   return clone(demoClaims.map((claim) => claim.processedJob));
 }
 
+export function getProcessingDemoJobs(): ClaimJob[] {
+  return clone(demoClaims.map((claim) => ({
+    ...claim.job,
+    status: "processing" as const,
+    updated_at: "2026-07-12T03:49:00.000Z"
+  })));
+}
+
 export function getDemoSummary() {
   return {
     claims: demoClaims.length,
