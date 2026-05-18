@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   AlertCircle,
   CheckCircle2,
+  CircleX,
   Clock3,
   Database,
   Download,
@@ -130,6 +131,17 @@ export default function Home() {
     setProcessingDemo(false);
   }
 
+  function clearDemoData() {
+    setJobs((current) => current.filter((job) => !isDemoJob(job.job_id)));
+    setSelectedJob(null);
+    setResult(null);
+    setResultView("summary");
+    setDemoLoaded(false);
+    setDemoProcessed(false);
+    setJobFilter("all");
+    setError(null);
+  }
+
   async function uploadSelectedFiles() {
     if (!files.length) {
       return;
@@ -238,6 +250,15 @@ export default function Home() {
               {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
               Process demo data
             </button>
+            {demoLoaded ? (
+              <button
+                onClick={clearDemoData}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+              >
+                <CircleX className="h-4 w-4" />
+                Clear demo
+              </button>
+            ) : null}
             <button
               onClick={refreshJobs}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100 disabled:opacity-60"
