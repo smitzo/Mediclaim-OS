@@ -13,7 +13,7 @@ import {
   RefreshCw,
   UploadCloud
 } from "lucide-react";
-import { ClaimJob, ClaimResponse, getClaimResult, listJobs, submitClaims } from "@/lib/api";
+import { ClaimJob, ClaimResponse, JobStatus, getClaimResult, listJobs, submitClaims } from "@/lib/api";
 import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
@@ -32,9 +32,14 @@ const statusLabels: Record<string, string> = {
   failed: "Failed"
 };
 
+type JobFilter = "all" | JobStatus;
+
+const jobFilters: JobFilter[] = ["all", "queued", "processing", "succeeded", "partial", "failed"];
+
 export default function Home() {
   const [jobs, setJobs] = useState<ClaimJob[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [jobFilter, setJobFilter] = useState<JobFilter>("all");
   const [selectedJob, setSelectedJob] = useState<ClaimJob | null>(null);
   const [result, setResult] = useState<ClaimResponse | null>(null);
   const [loadingJobs, setLoadingJobs] = useState(false);
@@ -64,6 +69,13 @@ export default function Home() {
     }
     return `${summary.claims} demo claims, ${summary.pages} pages`;
   }, [demoLoaded, demoProcessed]);
+
+  const filteredJobs = useMemo(() => {
+    if (jobFilter === "all") {
+      return jobs;
+    }
+    return jobs.filter((job) => job.status === jobFilter);
+  }, [jobFilter, jobs]);
 
   const refreshJobs = useCallback(async () => {
     setLoadingJobs(true);
@@ -276,6 +288,21 @@ export default function Home() {
                 <h2 className="text-base font-semibold text-zinc-950">Recent claim jobs</h2>
                 <p className="text-sm text-zinc-500">Jobs poll automatically while active.</p>
               </div>
+              <div className="flex flex-wrap gap-2">
+                {jobFilters.map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setJobFilter(filter)}
+                    className={`h-8 rounded-md border px-3 text-xs font-semibold ${
+                      jobFilter === filter
+                        ? "border-blue-700 bg-blue-700 text-white"
+                        : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-100"
+                    }`}
+                  >
+                    {filter === "all" ? "All" : statusLabels[filter]}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
@@ -290,7 +317,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {jobs.map((job) => (
+                  {filteredJobs.map((job) => (
                     <tr key={job.job_id} className={selectedJob?.job_id === job.job_id ? "bg-blue-50/60" : "hover:bg-zinc-50"}>
                       <td className="px-5 py-3 font-medium text-zinc-950">{job.claim_id}</td>
                       <td className="max-w-64 truncate px-5 py-3 text-zinc-600">{job.filename}</td>
@@ -313,10 +340,10 @@ export default function Home() {
                       </td>
                     </tr>
                   ))}
-                  {!jobs.length ? (
+                  {!filteredJobs.length ? (
                     <tr>
                       <td colSpan={6} className="px-5 py-10 text-center text-sm text-zinc-500">
-                        No jobs yet.
+                        No jobs match this view.
                       </td>
                     </tr>
                   ) : null}
