@@ -33,6 +33,7 @@ const statusLabels: Record<string, string> = {
 };
 
 type JobFilter = "all" | JobStatus;
+type ResultView = "summary" | "json";
 
 const jobFilters: JobFilter[] = ["all", "queued", "processing", "succeeded", "partial", "failed"];
 
@@ -42,6 +43,7 @@ export default function Home() {
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
   const [selectedJob, setSelectedJob] = useState<ClaimJob | null>(null);
   const [result, setResult] = useState<ClaimResponse | null>(null);
+  const [resultView, setResultView] = useState<ResultView>("summary");
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [resultLoading, setResultLoading] = useState(false);
@@ -86,6 +88,7 @@ export default function Home() {
       setDemoLoaded(false);
       setDemoProcessed(false);
       setResult(null);
+      setResultView("summary");
       setJobFilter("all");
       setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? null : current);
     } catch (exc) {
@@ -100,6 +103,7 @@ export default function Home() {
     setJobs(nextJobs);
     setFiles([]);
     setResult(null);
+    setResultView("summary");
     setSelectedJob(nextJobs[0] ?? null);
     setJobFilter("all");
     setDemoLoaded(true);
@@ -111,6 +115,7 @@ export default function Home() {
     setProcessingDemo(true);
     setError(null);
     setResult(null);
+    setResultView("summary");
     setJobs(getProcessingDemoJobs());
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     const nextJobs = getProcessedDemoJobs();
@@ -120,6 +125,7 @@ export default function Home() {
     setDemoLoaded(true);
     setDemoProcessed(true);
     setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id) : null);
+    setResultView("summary");
     setProcessingDemo(false);
   }
 
@@ -149,6 +155,7 @@ export default function Home() {
   async function inspectJob(job: ClaimJob) {
     setSelectedJob(job);
     setResult(null);
+    setResultView("summary");
     if (isDemoJob(job.job_id)) {
       const demoResult = getDemoResult(job.job_id);
       if (demoResult && (job.status === "succeeded" || job.status === "partial")) {
@@ -364,14 +371,33 @@ export default function Home() {
                 {selectedJob ? `${selectedJob.claim_id} - ${statusLabels[selectedJob.status] ?? selectedJob.status}` : "Select a completed or partial job to view extracted JSON."}
               </p>
             </div>
-            {resultLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-700" /> : null}
+            <div className="flex items-center gap-2">
+              {result ? (
+                <div className="flex rounded-md border border-zinc-300 bg-white p-1">
+                  {(["summary", "json"] as ResultView[]).map((view) => (
+                    <button
+                      key={view}
+                      onClick={() => setResultView(view)}
+                      className={`h-8 rounded px-3 text-xs font-semibold capitalize ${
+                        resultView === view ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                      }`}
+                    >
+                      {view}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {resultLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-700" /> : null}
+            </div>
           </div>
 
-          {result ? <ResultSummary result={result} /> : null}
+          {result && resultView === "summary" ? <ResultSummary result={result} /> : null}
 
-          <pre className="mt-4 max-h-[520px] overflow-auto rounded-md bg-zinc-950 p-4 text-xs leading-6 text-zinc-100">
-            {result ? JSON.stringify(result, null, 2) : selectedJob?.error ?? "No result selected."}
-          </pre>
+          {resultView === "json" || !result ? (
+            <pre className="mt-4 max-h-[520px] overflow-auto rounded-md bg-zinc-950 p-4 text-xs leading-6 text-zinc-100">
+              {result ? JSON.stringify(result, null, 2) : selectedJob?.error ?? "No result selected."}
+            </pre>
+          ) : null}
         </section>
       </div>
     </main>
