@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   Database,
+  Download,
   FileArchive,
   FileText,
   Loader2,
@@ -175,6 +176,20 @@ export default function Home() {
     } finally {
       setResultLoading(false);
     }
+  }
+
+  function downloadResult() {
+    if (!result || !selectedJob) {
+      return;
+    }
+    const payload = JSON.stringify(result, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selectedJob.claim_id}-result.json`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   }
 
   useEffect(() => {
@@ -373,19 +388,28 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-2">
               {result ? (
-                <div className="flex rounded-md border border-zinc-300 bg-white p-1">
-                  {(["summary", "json"] as ResultView[]).map((view) => (
-                    <button
-                      key={view}
-                      onClick={() => setResultView(view)}
-                      className={`h-8 rounded px-3 text-xs font-semibold capitalize ${
-                        resultView === view ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                      }`}
-                    >
-                      {view}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <button
+                    onClick={downloadResult}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export JSON
+                  </button>
+                  <div className="flex rounded-md border border-zinc-300 bg-white p-1">
+                    {(["summary", "json"] as ResultView[]).map((view) => (
+                      <button
+                        key={view}
+                        onClick={() => setResultView(view)}
+                        className={`h-8 rounded px-3 text-xs font-semibold capitalize ${
+                          resultView === view ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {view}
+                      </button>
+                    ))}
+                  </div>
+                </>
               ) : null}
               {resultLoading ? <Loader2 className="h-5 w-5 animate-spin text-blue-700" /> : null}
             </div>
