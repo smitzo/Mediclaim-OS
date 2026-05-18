@@ -86,6 +86,7 @@ export default function Home() {
       setDemoLoaded(false);
       setDemoProcessed(false);
       setResult(null);
+      setJobFilter("all");
       setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? null : current);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load jobs");
@@ -100,6 +101,7 @@ export default function Home() {
     setFiles([]);
     setResult(null);
     setSelectedJob(nextJobs[0] ?? null);
+    setJobFilter("all");
     setDemoLoaded(true);
     setDemoProcessed(false);
     setError(null);
@@ -133,6 +135,7 @@ export default function Home() {
       setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
       setDemoLoaded(false);
       setDemoProcessed(false);
+      setJobFilter("all");
       if (response.rejected.length) {
         setError(`${response.rejected.length} file(s) were rejected. Check PDF type, size, or page limits.`);
       }
