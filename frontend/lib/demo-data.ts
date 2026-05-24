@@ -8,7 +8,7 @@ export type DemoClaim = {
 
 const createdAt = "2026-07-12T03:45:00.000Z";
 
-const demoClaims: DemoClaim[] = [
+const curatedDemoClaims: DemoClaim[] = [
   {
     job: {
       job_id: "demo-claim-aarya-mehta",
@@ -350,6 +350,219 @@ const demoClaims: DemoClaim[] = [
     }
   }
 ];
+
+const generatedCustomers = [
+  "Ishaan Kapoor",
+  "Mira Nair",
+  "Dev Patel",
+  "Anika Sen",
+  "Ritika Bose",
+  "Arjun Rao",
+  "Priya Menon",
+  "Nikhil Verma",
+  "Sara Dsouza",
+  "Vikram Sethi",
+  "Leena Thomas",
+  "Manav Bhat",
+  "Tara Khanna",
+  "Omar Qureshi",
+  "Diya Shah",
+  "Rahul Nanda",
+  "Meera Pillai",
+  "Kunal Desai",
+  "Zoya Mirza",
+  "Aditya Jain",
+  "Naina Gupta",
+  "Rohan Bendre",
+  "Kavya Reddy",
+  "Sahil Arora",
+  "Ira Mukherjee",
+  "Varun Iyer",
+  "Tanvi Chawla",
+  "Neil Fernandes",
+  "Pooja Saxena",
+  "Aman Gill",
+  "Reva Sinha",
+  "Yash Malhotra",
+  "Sneha Kulkarni",
+  "Farhan Ali",
+  "Myra Dutta",
+  "Harsh Vora",
+  "Anaya Roy",
+  "Karan Mehra",
+  "Rhea Narang",
+  "Samar Sheikh",
+  "Aditi Nambiar",
+  "Kabir Bansal",
+  "Janvi Trivedi",
+  "Mohan Krishnan",
+  "Esha Agarwal",
+  "Parth Joshi",
+  "Lavanya Rao"
+];
+
+const hospitals = [
+  "CityCare Multi Speciality Hospital",
+  "Sunrise Medical Centre",
+  "VisionPlus Eye Hospital",
+  "MetroLife Hospital",
+  "Greenfield Medical Institute",
+  "Lotus Health Centre"
+];
+
+const diagnoses = [
+  "Acute gastroenteritis",
+  "Viral fever with dehydration",
+  "Lower respiratory tract infection",
+  "Renal stone management",
+  "Knee arthroscopy recovery",
+  "Hypertension observation"
+];
+
+const generatedDemoClaims: DemoClaim[] = generatedCustomers.map((customer, index) => createGeneratedDemoClaim(customer, index + 4));
+
+const demoClaims: DemoClaim[] = [...curatedDemoClaims, ...generatedDemoClaims];
+
+function createGeneratedDemoClaim(customer: string, serial: number): DemoClaim {
+  const normalizedName = customer.toLowerCase().replaceAll(" ", "-");
+  const pageCount = 4 + (serial % 5);
+  const totalAmount = 18000 + serial * 2150;
+  const insurancePayment = serial % 3 === 0 ? Math.round(totalAmount * 0.7) : Math.round(totalAmount * 0.55);
+  const patientResponsibility = totalAmount - insurancePayment;
+  const hospital = hospitals[serial % hospitals.length];
+  const diagnosis = diagnoses[serial % diagnoses.length];
+  const isPartial = serial % 7 === 0;
+  const updatedMinute = String(10 + (serial % 45)).padStart(2, "0");
+  const claimId = `CLM-DEMO-${String(1000 + serial).padStart(4, "0")}`;
+  const jobId = `demo-claim-${normalizedName}`;
+  const error = isPartial ? "One supporting page had low confidence; primary extraction completed." : null;
+
+  return {
+    job: {
+      job_id: jobId,
+      claim_id: claimId,
+      filename: `${normalizedName}-medical-claim.pdf`,
+      status: "queued",
+      created_at: createdAt,
+      updated_at: `2026-07-12T04:${updatedMinute}:00.000Z`,
+      page_count: pageCount,
+      file_size_bytes: 640000 + serial * 24576,
+      result_url: `/demo/claims/${jobId}/result`
+    },
+    processedJob: {
+      job_id: jobId,
+      claim_id: claimId,
+      filename: `${normalizedName}-medical-claim.pdf`,
+      status: isPartial ? "partial" : "succeeded",
+      created_at: createdAt,
+      updated_at: `2026-07-12T05:${updatedMinute}:00.000Z`,
+      page_count: pageCount,
+      file_size_bytes: 640000 + serial * 24576,
+      error,
+      result_url: `/demo/claims/${jobId}/result`
+    },
+    result: {
+      claim_id: claimId,
+      status: isPartial ? "partial" : "success",
+      page_classification: buildPageClassification(pageCount, isPartial),
+      extracted_data: {
+        identity: {
+          patient_name: customer,
+          date_of_birth: `19${70 + (serial % 25)}-${String((serial % 12) + 1).padStart(2, "0")}-${String((serial % 27) + 1).padStart(2, "0")}`,
+          gender: serial % 2 === 0 ? "Female" : "Male",
+          blood_group: ["A+", "B+", "O+", "AB+"][serial % 4],
+          address: `${10 + serial} Health Avenue, ${["Mumbai", "Pune", "Delhi", "Bengaluru", "Chennai"][serial % 5]}`,
+          contact_number: `+91 98765 ${String(41000 + serial).padStart(5, "0")}`,
+          email: `${normalizedName}@example.com`,
+          id_number: `ID-${String(880000 + serial)}`,
+          policy_number: `POL-DEMO-${String(220000 + serial)}`,
+          insurance_provider: serial % 2 === 0 ? "Northstar Health Insurance" : "CareBridge Assurance",
+          bank_account_number: `XXXXXX${String(7000 + serial)}`,
+          bank_name: ["HDFC Bank", "ICICI Bank", "Axis Bank", "State Bank of India"][serial % 4],
+          ifsc_routing_number: `DEMO000${String(serial).padStart(3, "0")}`,
+          swift_code: null,
+          extra_fields: {
+            tenant_id: serial % 2 === 0 ? "tenant-northstar-demo" : "tenant-carebridge-demo",
+            claim_type: serial % 3 === 0 ? "cashless" : "reimbursement"
+          }
+        },
+        discharge_summary: {
+          admission_date: `2026-06-${String((serial % 20) + 1).padStart(2, "0")}`,
+          discharge_date: `2026-06-${String((serial % 20) + 3).padStart(2, "0")}`,
+          length_of_stay: `${2 + (serial % 4)} days`,
+          admission_diagnosis: diagnosis,
+          final_diagnosis: `${diagnosis}, improved`,
+          attending_physician: `Dr. ${["Rao", "Menon", "Shah", "Kapoor", "Kulkarni"][serial % 5]}`,
+          hospital_name: hospital,
+          mrn: `MRN-${String(500000 + serial)}`,
+          treatment_summary: "Patient was monitored, treated, and discharged in stable condition.",
+          discharge_medications: ["Pantoprazole 40 mg once daily", "Paracetamol 650 mg as needed"],
+          follow_up_instructions: "Follow up with the treating physician after 7 days.",
+          condition_at_discharge: "Stable",
+          prescriptions: [
+            { medicine: "Pantoprazole", dosage: "40 mg", frequency: "OD", duration: "7 days" }
+          ],
+          extra_fields: {}
+        },
+        itemized_bill: {
+          bill_number: `BILL-DEMO-${String(76000 + serial)}`,
+          bill_date: `2026-06-${String((serial % 20) + 3).padStart(2, "0")}`,
+          hospital_name: hospital,
+          patient_name: customer,
+          line_items: [
+            { date: `2026-06-${String((serial % 20) + 1).padStart(2, "0")}`, description: "Room and nursing charges", quantity: 2 + (serial % 4), unit_price: 2800, amount: (2 + (serial % 4)) * 2800 },
+            { date: `2026-06-${String((serial % 20) + 2).padStart(2, "0")}`, description: "Consultation and procedure", quantity: 1, unit_price: Math.round(totalAmount * 0.45), amount: Math.round(totalAmount * 0.45) },
+            { date: `2026-06-${String((serial % 20) + 3).padStart(2, "0")}`, description: "Medicines and diagnostics", quantity: 1, unit_price: Math.round(totalAmount * 0.2), amount: Math.round(totalAmount * 0.2) }
+          ],
+          subtotal: totalAmount,
+          tax: 0,
+          discount: serial % 4 === 0 ? 1000 : 0,
+          insurance_payment: insurancePayment,
+          total_amount: totalAmount,
+          patient_responsibility: patientResponsibility,
+          payment_method: serial % 3 === 0 ? "insurer settlement" : "card",
+          extra_fields: {
+            generated_demo: true
+          }
+        }
+      },
+      errors: error ? [error] : [],
+      processing_summary: {
+        total_pages: pageCount,
+        document_types_found: ["claim_forms", "identity_document", "discharge_summary", "itemized_bill", "cash_receipt"],
+        pages_per_document_type: {
+          claim_forms: [0],
+          identity_document: [1],
+          discharge_summary: [2],
+          itemized_bill: [3],
+          cash_receipt: [pageCount - 1]
+        },
+        agents_ran: ["id_agent", "discharge_agent", "bill_agent"],
+        errors_count: error ? 1 : 0,
+        tenant_id: serial % 2 === 0 ? "tenant-northstar-demo" : "tenant-carebridge-demo",
+        demo: true
+      }
+    }
+  };
+}
+
+function buildPageClassification(pageCount: number, isPartial: boolean) {
+  const base = [
+    { page_number: 1, document_type: "claim_forms", confidence: "high", description: "Claim form and policy details" },
+    { page_number: 2, document_type: "identity_document", confidence: "high", description: "Identity and address proof" },
+    { page_number: 3, document_type: "discharge_summary", confidence: "high", description: "Clinical discharge summary" },
+    { page_number: 4, document_type: "itemized_bill", confidence: "high", description: "Hospital itemized bill" }
+  ];
+  for (let page = 5; page <= pageCount; page += 1) {
+    base.push({
+      page_number: page,
+      document_type: page === pageCount ? "cash_receipt" : "investigation_report",
+      confidence: isPartial && page === pageCount ? "medium" : "high",
+      description: page === pageCount ? "Payment receipt" : "Supporting investigation report"
+    });
+  }
+  return base;
+}
 
 export function getDemoJobs(): ClaimJob[] {
   return clone(demoClaims.map((claim) => claim.job));
