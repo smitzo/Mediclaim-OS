@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
+  Building2,
   CheckCircle2,
   CircleX,
   Clock3,
@@ -11,11 +12,14 @@ import {
   FileArchive,
   FileText,
   Loader2,
+  LogIn,
+  LogOut,
   PlayCircle,
   RefreshCw,
   UploadCloud
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, JobStatus, getClaimResult, listJobs, submitClaims } from "@/lib/api";
+import { AuthSession, loadSession, registerCompany, signInCompany, signOutCompany } from "@/lib/auth";
 import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
@@ -36,10 +40,16 @@ const statusLabels: Record<string, string> = {
 
 type JobFilter = "all" | JobStatus;
 type ResultView = "summary" | "json";
+type AuthMode = "signin" | "register";
 
 const jobFilters: JobFilter[] = ["all", "queued", "processing", "succeeded", "partial", "failed"];
 
 export default function Home() {
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [companyName, setCompanyName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [jobs, setJobs] = useState<ClaimJob[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
@@ -53,6 +63,7 @@ export default function Home() {
   const [demoLoaded, setDemoLoaded] = useState(false);
   const [demoProcessed, setDemoProcessed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     return {
@@ -82,10 +93,13 @@ export default function Home() {
   }, [jobFilter, jobs]);
 
   const refreshJobs = useCallback(async () => {
+    if (!session) {
+      return;
+    }
     setLoadingJobs(true);
     setError(null);
     try {
-      const nextJobs = await listJobs();
+      const nextJobs = await listJobs(session.tenantId);
       setJobs(nextJobs);
       setDemoLoaded(false);
       setDemoProcessed(false);
@@ -98,7 +112,31 @@ export default function Home() {
     } finally {
       setLoadingJobs(false);
     }
-  }, []);
+  }, [session]);
+
+  function submitAuthForm() {
+    const result = authMode === "register"
+      ? registerCompany(companyName, username, password)
+      : signInCompany(username, password);
+    if (!result.ok) {
+      setAuthError(result.message);
+      return;
+    }
+    setSession(result.session);
+    setAuthError(null);
+    setPassword("");
+  }
+
+  function signOut() {
+    signOutCompany();
+    setSession(null);
+    setJobs([]);
+    setFiles([]);
+    setSelectedJob(null);
+    setResult(null);
+    setDemoLoaded(false);
+    setDemoProcessed(false);
+  }
 
   function loadDemoData() {
     const nextJobs = getDemoJobs();
@@ -149,7 +187,7 @@ export default function Home() {
     setUploading(true);
     setError(null);
     try {
-      const response = await submitClaims(files);
+      const response = await submitClaims(files, session?.tenantId);
       setFiles([]);
       setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
       setDemoLoaded(false);
@@ -182,7 +220,7 @@ export default function Home() {
     setResultLoading(true);
     setError(null);
     try {
-      setResult(await getClaimResult(job.job_id));
+      setResult(await getClaimResult(job.job_id, session?.tenantId));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load result");
     } finally {
@@ -205,8 +243,14 @@ export default function Home() {
   }
 
   useEffect(() => {
-    refreshJobs();
-  }, [refreshJobs]);
+    setSession(loadSession());
+  }, []);
+
+  useEffect(() => {
+    if (session) {
+      refreshJobs();
+    }
+  }, [refreshJobs, session]);
 
   useEffect(() => {
     if (demoLoaded) {
@@ -220,6 +264,23 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [demoLoaded, jobs, refreshJobs]);
 
+  if (!session) {
+    return (
+      <AuthScreen
+        authMode={authMode}
+        authError={authError}
+        companyName={companyName}
+        username={username}
+        password={password}
+        onAuthModeChange={setAuthMode}
+        onCompanyNameChange={setCompanyName}
+        onUsernameChange={setUsername}
+        onPasswordChange={setPassword}
+        onSubmit={submitAuthForm}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
@@ -230,6 +291,13 @@ export default function Home() {
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
               Upload claim PDFs in batches, let the distributed worker process them, and inspect structured extraction results as jobs finish.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">
+                <Building2 className="h-3.5 w-3.5" />
+                {session.companyName}
+              </span>
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium">{session.tenantId}</span>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex h-10 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600">
@@ -266,6 +334,13 @@ export default function Home() {
             >
               <RefreshCw className={`h-4 w-4 ${loadingJobs ? "animate-spin" : ""}`} />
               Refresh
+            </button>
+            <button
+              onClick={signOut}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
             </button>
           </div>
         </header>
@@ -445,6 +520,119 @@ export default function Home() {
           ) : null}
         </section>
       </div>
+    </main>
+  );
+}
+
+function AuthScreen({
+  authMode,
+  authError,
+  companyName,
+  username,
+  password,
+  onAuthModeChange,
+  onCompanyNameChange,
+  onUsernameChange,
+  onPasswordChange,
+  onSubmit
+}: {
+  authMode: AuthMode;
+  authError: string | null;
+  companyName: string;
+  username: string;
+  password: string;
+  onAuthModeChange: (mode: AuthMode) => void;
+  onCompanyNameChange: (value: string) => void;
+  onUsernameChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-5 py-8 text-zinc-950">
+      <section className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+            <Building2 className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-blue-700">ClaimOps</p>
+            <h1 className="text-xl font-semibold tracking-normal">Company access</h1>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-2 rounded-md bg-zinc-100 p-1">
+          {(["signin", "register"] as AuthMode[]).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => onAuthModeChange(mode)}
+              className={`h-9 rounded text-sm font-semibold capitalize ${
+                authMode === mode ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:text-zinc-950"
+              }`}
+            >
+              {mode === "signin" ? "Sign in" : "Register"}
+            </button>
+          ))}
+        </div>
+
+        <form
+          className="mt-5 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          {authMode === "register" ? (
+            <label className="block text-sm font-medium text-zinc-700">
+              Company name
+              <input
+                value={companyName}
+                onChange={(event) => onCompanyNameChange(event.target.value)}
+                className="mt-1 h-11 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="Northstar Claims Pvt Ltd"
+              />
+            </label>
+          ) : null}
+
+          <label className="block text-sm font-medium text-zinc-700">
+            Username
+            <input
+              value={username}
+              onChange={(event) => onUsernameChange(event.target.value)}
+              className="mt-1 h-11 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              placeholder="demo"
+              autoComplete="username"
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-zinc-700">
+            Password
+            <input
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              className="mt-1 h-11 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              placeholder="demo"
+              type="password"
+              autoComplete={authMode === "register" ? "new-password" : "current-password"}
+            />
+          </label>
+
+          {authError ? (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          ) : null}
+
+          <button className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800">
+            <LogIn className="h-4 w-4" />
+            {authMode === "signin" ? "Sign in" : "Register company"}
+          </button>
+        </form>
+
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Use username <span className="font-semibold">demo</span> and password <span className="font-semibold">demo</span> to enter the demo tenant immediately.
+        </div>
+      </section>
     </main>
   );
 }
