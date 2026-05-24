@@ -24,29 +24,36 @@ export type ClaimResponse = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
-export async function listJobs(): Promise<ClaimJob[]> {
+export async function listJobs(tenantId?: string): Promise<ClaimJob[]> {
   const response = await fetch(`${API_BASE_URL}/api/claims?limit=100`, {
-    cache: "no-store"
+    cache: "no-store",
+    headers: tenantHeaders(tenantId)
   });
   return parseResponse<ClaimJob[]>(response);
 }
 
-export async function submitClaims(files: File[]): Promise<{ jobs: ClaimJob[]; rejected: Array<Record<string, string>> }> {
+export async function submitClaims(files: File[], tenantId?: string): Promise<{ jobs: ClaimJob[]; rejected: Array<Record<string, string>> }> {
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
 
   const response = await fetch(`${API_BASE_URL}/api/claims/batch`, {
     method: "POST",
+    headers: tenantHeaders(tenantId),
     body: form
   });
   return parseResponse(response);
 }
 
-export async function getClaimResult(jobId: string): Promise<ClaimResponse> {
+export async function getClaimResult(jobId: string, tenantId?: string): Promise<ClaimResponse> {
   const response = await fetch(`${API_BASE_URL}/api/claims/${jobId}/result`, {
-    cache: "no-store"
+    cache: "no-store",
+    headers: tenantHeaders(tenantId)
   });
   return parseResponse<ClaimResponse>(response);
+}
+
+function tenantHeaders(tenantId?: string): HeadersInit {
+  return tenantId ? { "X-Tenant-ID": tenantId } : {};
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
