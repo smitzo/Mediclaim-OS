@@ -467,6 +467,7 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
   const bill = getRecord(result.extracted_data.itemized_bill);
   const lineItems = Array.isArray(bill.line_items) ? bill.line_items : [];
   const summary = result.processing_summary;
+  const agents = Array.isArray(summary.agents_ran) ? summary.agents_ran.map(String) : [];
 
   return (
     <div className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -505,7 +506,12 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
               {String(summary.total_pages ?? result.page_classification.length)} pages, {result.page_classification.length} classifications, {result.errors.length} errors
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            {agents.map((agent) => (
+              <span key={agent} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                {agent.replaceAll("_", " ")}
+              </span>
+            ))}
             {result.page_classification.map((page) => (
               <span key={`${page.page_number}-${page.document_type}`} className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
                 p{String(page.page_number)} {String(page.document_type).replaceAll("_", " ")}
