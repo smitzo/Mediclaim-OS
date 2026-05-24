@@ -589,9 +589,25 @@ export function getDemoSummary() {
   };
 }
 
-export function getDemoResult(jobId: string): ClaimResponse | null {
+export function getDemoResult(jobId: string, tenantId?: string): ClaimResponse | null {
   const claim = demoClaims.find((item) => item.job.job_id === jobId);
-  return claim ? clone(claim.result) : null;
+  if (!claim) {
+    return null;
+  }
+  const result = clone(claim.result);
+  if (tenantId) {
+    result.processing_summary.tenant_id = tenantId;
+    const identity = result.extracted_data.identity;
+    if (identity && typeof identity === "object" && !Array.isArray(identity)) {
+      const identityRecord = identity as Record<string, unknown>;
+      const extraFields = identityRecord.extra_fields;
+      identityRecord.extra_fields = {
+        ...(extraFields && typeof extraFields === "object" && !Array.isArray(extraFields) ? extraFields : {}),
+        tenant_id: tenantId
+      };
+    }
+  }
+  return result;
 }
 
 export function isDemoJob(jobId: string): boolean {

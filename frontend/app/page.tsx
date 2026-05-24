@@ -164,7 +164,7 @@ export default function Home() {
     setSelectedJob(nextSelectedJob);
     setDemoLoaded(true);
     setDemoProcessed(true);
-    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id) : null);
+    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session.tenantId) : null);
     setResultView("summary");
     setProcessingDemo(false);
   }
@@ -208,7 +208,7 @@ export default function Home() {
     setResult(null);
     setResultView("summary");
     if (isDemoJob(job.job_id)) {
-      const demoResult = getDemoResult(job.job_id);
+      const demoResult = getDemoResult(job.job_id, session?.tenantId);
       if (demoResult && (job.status === "succeeded" || job.status === "partial")) {
         setResult(demoResult);
       }
