@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
@@ -77,9 +77,10 @@ async def process_claim(
 async def submit_claim_job(
     claim_id: str = Form(..., description="Business claim identifier"),
     file: UploadFile = File(..., description="PDF claim document"),
+    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> ClaimJobSubmitResponse:
     pdf_bytes, page_count = await _validated_pdf(file)
-    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count)
+    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, _tenant_id(tenant_id))
     _enqueue_job(job)
     return ClaimJobSubmitResponse(job=job)
 
@@ -94,6 +95,7 @@ async def submit_claim_job(
 async def submit_claim_batch(
     files: list[UploadFile] = File(..., description="One or more PDF claim documents"),
     claim_ids: list[str] | None = Form(None, description="Optional claim IDs matching upload order"),
+    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> ClaimBatchSubmitResponse:
     jobs: list[ClaimJob] = []
     rejected: list[dict[str, str]] = []
@@ -102,7 +104,7 @@ async def submit_claim_batch(
         claim_id = _claim_id_for_upload(upload, index, claim_ids)
         try:
             pdf_bytes, page_count = await _validated_pdf(upload)
-            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count)
+            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count, _tenant_id(tenant_id))
             _enqueue_job(job)
             jobs.append(job)
         except HTTPException as exc:
@@ -128,9 +130,9 @@ async def submit_claim_batch(
     summary="List recent claim jobs",
     tags=["Claims"],
 )
-async def list_claim_jobs(limit: int = 100) -> list[ClaimJob]:
+async def list_claim_jobs(limit: int = 100, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> list[ClaimJob]:
     bounded_limit = max(1, min(limit, 500))
-    return storage.list_jobs(limit=bounded_limit)
+    return storage.list_jobs(limit=bounded_limit, tenant_id=_tenant_id(tenant_id))
 
 
 @router.get(
@@ -139,8 +141,10 @@ async def list_claim_jobs(limit: int = 100) -> list[ClaimJob]:
     summary="Get claim job status",
     tags=["Claims"],
 )
-async def get_claim_job(job_id: str) -> ClaimJob:
-    return storage.get_job(job_id)
+async def get_claim_job(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimJob:
+    job = storage.get_job(job_id)
+    _ensure_tenant_access(job, tenant_id)
+    return job
 
 
 @router.get(
@@ -149,8 +153,8 @@ async def get_claim_job(job_id: str) -> ClaimJob:
     summary="Get a completed claim extraction result",
     tags=["Claims"],
 )
-async def get_claim_result(job_id: str) -> ClaimResponse:
-    return storage.get_result(job_id)
+async def get_claim_result(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimResponse:
+    return storage.get_result(job_id, _tenant_id(tenant_id))
 
 
 async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
@@ -190,3 +194,12 @@ def _claim_id_for_upload(upload: UploadFile, index: int, claim_ids: list[str] | 
         return claim_ids[index].strip()
     stem = (upload.filename or f"claim-{index + 1}").rsplit(".", 1)[0]
     return stem or f"claim-{index + 1}"
+
+
+def _tenant_id(value: str | None) -> str:
+    return value.strip() if value and value.strip() else "default"
+
+
+def _ensure_tenant_access(job: ClaimJob, tenant_id: str | None) -> None:
+    if job.tenant_id != _tenant_id(tenant_id):
+        raise HTTPException(status_code=404, detail="Claim job not found.")

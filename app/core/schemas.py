@@ -166,6 +166,7 @@ JobStatus = Literal["queued", "processing", "succeeded", "partial", "failed"]
 
 class ClaimJob(BaseModel):
     job_id: str
+    tenant_id: str = "default"
     claim_id: str
     filename: str
     status: JobStatus

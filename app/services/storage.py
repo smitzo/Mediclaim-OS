@@ -36,12 +36,13 @@ class ClaimStorage:
         for directory in (self.upload_dir, self.job_dir, self.result_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
-    def create_job(self, claim_id: str, filename: str, pdf_bytes: bytes, page_count: int) -> ClaimJob:
+    def create_job(self, claim_id: str, filename: str, pdf_bytes: bytes, page_count: int, tenant_id: str = "default") -> ClaimJob:
         now = utc_now()
         job_id = uuid.uuid4().hex
         safe_filename = _safe_filename(filename or f"{claim_id}.pdf")
         job = ClaimJob(
             job_id=job_id,
+            tenant_id=_safe_identifier(tenant_id or "default"),
             claim_id=claim_id,
             filename=safe_filename,
             status="queued",
@@ -61,13 +62,17 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim job not found.")
         return ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
 
-    def list_jobs(self, limit: int = 100) -> list[ClaimJob]:
+    def list_jobs(self, limit: int = 100, tenant_id: str | None = None) -> list[ClaimJob]:
         jobs: list[ClaimJob] = []
+        safe_tenant_id = _safe_identifier(tenant_id) if tenant_id else None
         for path in sorted(self.job_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
             try:
-                jobs.append(ClaimJob(**json.loads(path.read_text(encoding="utf-8"))))
+                job = ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
             except Exception:
                 continue
+            if safe_tenant_id and job.tenant_id != safe_tenant_id:
+                continue
+            jobs.append(job)
             if len(jobs) >= limit:
                 break
         return jobs
@@ -92,8 +97,10 @@ class ClaimStorage:
             encoding="utf-8",
         )
 
-    def get_result(self, job_id: str) -> ClaimResponse:
-        self.get_job(job_id)
+    def get_result(self, job_id: str, tenant_id: str | None = None) -> ClaimResponse:
+        job = self.get_job(job_id)
+        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
+            raise HTTPException(status_code=404, detail="Claim job not found.")
         path = self.result_path(job_id)
         if not path.exists():
             raise HTTPException(status_code=404, detail="Claim result is not ready yet.")
