@@ -355,15 +355,15 @@ export default function Home() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-4">
+        <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="Recent jobs" value={stats.total} icon={<FileArchive className="h-5 w-5" />} />
           <MetricCard label="Active queue" value={stats.active} icon={<Clock3 className="h-5 w-5" />} />
           <MetricCard label="Completed" value={stats.completed} icon={<CheckCircle2 className="h-5 w-5" />} />
           <MetricCard label="Failed" value={stats.failed} icon={<AlertCircle className="h-5 w-5" />} />
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
-          <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <section className="grid gap-7 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-50 text-blue-700">
                 <UploadCloud className="h-5 w-5" />
@@ -374,7 +374,7 @@ export default function Home() {
               </div>
             </div>
 
-            <label className="mt-5 flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center hover:border-blue-400 hover:bg-blue-50">
+            <label className="mt-6 flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-7 text-center hover:border-blue-400 hover:bg-blue-50">
               <UploadCloud className="h-8 w-8 text-blue-700" />
               <span className="mt-3 text-sm font-medium text-zinc-900">Choose claim PDFs</span>
               <span className="mt-1 text-xs text-zinc-500">Select one file or hundreds.</span>
@@ -387,7 +387,7 @@ export default function Home() {
               />
             </label>
 
-            <div className="mt-4 max-h-44 space-y-2 overflow-auto">
+            <div className="mt-5 max-h-44 space-y-2 overflow-auto">
               {files.map((file) => (
                 <div key={`${file.name}-${file.size}`} className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 text-sm">
                   <span className="truncate text-zinc-800">{file.name}</span>
@@ -399,7 +399,7 @@ export default function Home() {
             <button
               onClick={uploadSelectedFiles}
               disabled={!files.length || uploading}
-              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
               Queue {files.length || ""} file{files.length === 1 ? "" : "s"}
@@ -407,7 +407,7 @@ export default function Home() {
           </div>
 
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+            <div className="flex flex-col gap-4 border-b border-zinc-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-zinc-950">Recent claim jobs</h2>
                 <p className="text-sm text-zinc-500">Jobs poll automatically while active.</p>
@@ -642,12 +642,12 @@ function AuthScreen({
 
 function MetricCard({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-zinc-500">{label}</span>
-        <span className="text-blue-700">{icon}</span>
+        <span className="rounded-md bg-blue-50 p-2 text-blue-700">{icon}</span>
       </div>
-      <div className="mt-3 text-2xl font-semibold text-zinc-950">{value}</div>
+      <div className="mt-4 text-3xl font-semibold text-zinc-950">{value}</div>
     </div>
   );
 }
