@@ -304,7 +304,7 @@ export default function Home() {
               <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium">{session.tenantId}</span>
               <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium">{demoSummary}</span>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center lg:justify-end">
               <button
                 onClick={loadDemoData}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
@@ -480,15 +480,15 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
+        <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-base font-semibold text-zinc-950">Result inspector</h2>
               <p className="text-sm text-zinc-500">
                 {selectedJob ? `${selectedJob.claim_id} - ${statusLabels[selectedJob.status] ?? selectedJob.status}` : "Select a completed or partial job to view extracted JSON."}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {result ? (
                 <>
                   <button
