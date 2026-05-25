@@ -283,67 +283,70 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 xl:flex-row xl:items-end xl:justify-between">
-          <div>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-7 px-5 py-8 lg:px-8">
+        <header className="border-b border-zinc-200 pb-6">
+          <div className="max-w-3xl">
             <p className="text-sm font-medium text-blue-700">ClaimOps</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-normal text-zinc-950">Document Processor</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
               Upload claim PDFs in batches, let the distributed worker process them, and inspect structured extraction results as jobs finish.
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+          </div>
+        </header>
+
+        <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">
                 <Building2 className="h-3.5 w-3.5" />
                 {session.companyName}
               </span>
               <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium">{session.tenantId}</span>
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium">{demoSummary}</span>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-10 items-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600">
-              {demoSummary}
-            </span>
-            <button
-              onClick={loadDemoData}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
-            >
-              <Database className="h-4 w-4" />
-              Load demo data
-            </button>
-            <button
-              onClick={processDemoData}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-              disabled={processingDemo}
-            >
-              {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-              Process demo data
-            </button>
-            {demoLoaded ? (
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={clearDemoData}
+                onClick={loadDemoData}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
               >
-                <CircleX className="h-4 w-4" />
-                Clear demo
+                <Database className="h-4 w-4" />
+                Load demo data
               </button>
-            ) : null}
-            <button
-              onClick={refreshJobs}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100 disabled:opacity-60"
-              disabled={loadingJobs}
-            >
-              <RefreshCw className={`h-4 w-4 ${loadingJobs ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-            <button
-              onClick={signOut}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
-            >
-              <LogOut className="h-4 w-4" />
-              Sign out
-            </button>
+              <button
+                onClick={processDemoData}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                disabled={processingDemo}
+              >
+                {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
+                Process demo data
+              </button>
+              {demoLoaded ? (
+                <button
+                  onClick={clearDemoData}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+                >
+                  <CircleX className="h-4 w-4" />
+                  Clear demo
+                </button>
+              ) : null}
+              <button
+                onClick={refreshJobs}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+                disabled={loadingJobs}
+              >
+                <RefreshCw className={`h-4 w-4 ${loadingJobs ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+              <button
+                onClick={signOut}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+            </div>
           </div>
-        </header>
+        </section>
 
         {error ? (
           <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
