@@ -519,7 +519,17 @@ export default function Home() {
 
           {result && resultView === "summary" ? <ResultSummary result={result} /> : null}
 
-          {resultView === "json" || !result ? (
+          {!result && !selectedJob?.error ? (
+            <div className="mt-5 flex min-h-36 items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-8 text-center">
+              <div>
+                <FileText className="mx-auto h-8 w-8 text-zinc-300" />
+                <p className="mt-3 text-sm font-medium text-zinc-700">No result selected</p>
+                <p className="mt-1 text-sm text-zinc-500">Choose a succeeded or partial job to review extracted data.</p>
+              </div>
+            </div>
+          ) : null}
+
+          {resultView === "json" || (!result && selectedJob?.error) ? (
             <pre className="mt-4 max-h-[520px] overflow-auto rounded-md bg-zinc-950 p-4 text-xs leading-6 text-zinc-100">
               {result ? JSON.stringify(result, null, 2) : selectedJob?.error ?? "No result selected."}
             </pre>
