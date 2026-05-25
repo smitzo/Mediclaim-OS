@@ -407,12 +407,12 @@ export default function Home() {
           </div>
 
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-4 border-b border-zinc-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="border-b border-zinc-200 px-6 py-5">
               <div>
                 <h2 className="text-base font-semibold text-zinc-950">Recent claim jobs</h2>
                 <p className="text-sm text-zinc-500">Jobs poll automatically while active.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 {jobFilters.map((filter) => (
                   <button
                     key={filter}
@@ -425,7 +425,7 @@ export default function Home() {
                   >
                     {filter === "all" ? "All" : statusLabels[filter]}
                   </button>
-                ))}
+                  ))}
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -466,8 +466,11 @@ export default function Home() {
                   ))}
                   {!filteredJobs.length ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-10 text-center text-sm text-zinc-500">
-                        No jobs match this view.
+                      <td colSpan={6} className="px-5 py-16 text-center text-sm text-zinc-500">
+                        <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
+                          <FileText className="h-7 w-7 text-zinc-300" />
+                          <span>No jobs match this view.</span>
+                        </div>
                       </td>
                     </tr>
                   ) : null}
