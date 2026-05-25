@@ -139,7 +139,7 @@ export default function Home() {
   }
 
   function loadDemoData() {
-    const nextJobs = getDemoJobs();
+    const nextJobs = getDemoJobs(session?.tenantId);
     setJobs(nextJobs);
     setFiles([]);
     setResult(null);
@@ -156,15 +156,15 @@ export default function Home() {
     setError(null);
     setResult(null);
     setResultView("summary");
-    setJobs(getProcessingDemoJobs());
+    setJobs(getProcessingDemoJobs(session?.tenantId));
     await new Promise((resolve) => window.setTimeout(resolve, 650));
-    const nextJobs = getProcessedDemoJobs();
+    const nextJobs = getProcessedDemoJobs(session?.tenantId);
     const nextSelectedJob = nextJobs[0] ?? null;
     setJobs(nextJobs);
     setSelectedJob(nextSelectedJob);
     setDemoLoaded(true);
     setDemoProcessed(true);
-    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session.tenantId) : null);
+    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session?.tenantId) : null);
     setResultView("summary");
     setProcessingDemo(false);
   }

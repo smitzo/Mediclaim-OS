@@ -12,6 +12,7 @@ const curatedDemoClaims: DemoClaim[] = [
   {
     job: {
       job_id: "demo-claim-aarya-mehta",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1001",
       filename: "aarya-mehta-cashless-claim.pdf",
       status: "queued",
@@ -23,6 +24,7 @@ const curatedDemoClaims: DemoClaim[] = [
     },
     processedJob: {
       job_id: "demo-claim-aarya-mehta",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1001",
       filename: "aarya-mehta-cashless-claim.pdf",
       status: "succeeded",
@@ -132,6 +134,7 @@ const curatedDemoClaims: DemoClaim[] = [
   {
     job: {
       job_id: "demo-claim-kabir-shah",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1002",
       filename: "kabir-shah-reimbursement.pdf",
       status: "queued",
@@ -143,6 +146,7 @@ const curatedDemoClaims: DemoClaim[] = [
     },
     processedJob: {
       job_id: "demo-claim-kabir-shah",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1002",
       filename: "kabir-shah-reimbursement.pdf",
       status: "partial",
@@ -244,6 +248,7 @@ const curatedDemoClaims: DemoClaim[] = [
   {
     job: {
       job_id: "demo-claim-nilam-iyer",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1003",
       filename: "nilam-iyer-daycare-claim.pdf",
       status: "queued",
@@ -255,6 +260,7 @@ const curatedDemoClaims: DemoClaim[] = [
     },
     processedJob: {
       job_id: "demo-claim-nilam-iyer",
+      tenant_id: "tenant-demo-bypass",
       claim_id: "CLM-DEMO-1003",
       filename: "nilam-iyer-daycare-claim.pdf",
       status: "succeeded",
@@ -440,6 +446,7 @@ function createGeneratedDemoClaim(customer: string, serial: number): DemoClaim {
   return {
     job: {
       job_id: jobId,
+      tenant_id: serial % 2 === 0 ? "tenant-northstar-demo" : "tenant-carebridge-demo",
       claim_id: claimId,
       filename: `${normalizedName}-medical-claim.pdf`,
       status: "queued",
@@ -451,6 +458,7 @@ function createGeneratedDemoClaim(customer: string, serial: number): DemoClaim {
     },
     processedJob: {
       job_id: jobId,
+      tenant_id: serial % 2 === 0 ? "tenant-northstar-demo" : "tenant-carebridge-demo",
       claim_id: claimId,
       filename: `${normalizedName}-medical-claim.pdf`,
       status: isPartial ? "partial" : "succeeded",
@@ -564,17 +572,17 @@ function buildPageClassification(pageCount: number, isPartial: boolean) {
   return base;
 }
 
-export function getDemoJobs(): ClaimJob[] {
-  return clone(demoClaims.map((claim) => claim.job));
+export function getDemoJobs(tenantId?: string): ClaimJob[] {
+  return clone(demoClaims.map((claim) => withTenantJob(claim.job, tenantId)));
 }
 
-export function getProcessedDemoJobs(): ClaimJob[] {
-  return clone(demoClaims.map((claim) => claim.processedJob));
+export function getProcessedDemoJobs(tenantId?: string): ClaimJob[] {
+  return clone(demoClaims.map((claim) => withTenantJob(claim.processedJob, tenantId)));
 }
 
-export function getProcessingDemoJobs(): ClaimJob[] {
+export function getProcessingDemoJobs(tenantId?: string): ClaimJob[] {
   return clone(demoClaims.map((claim) => ({
-    ...claim.job,
+    ...withTenantJob(claim.job, tenantId),
     status: "processing" as const,
     updated_at: "2026-07-12T03:49:00.000Z"
   })));
@@ -616,4 +624,8 @@ export function isDemoJob(jobId: string): boolean {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function withTenantJob(job: ClaimJob, tenantId?: string): ClaimJob {
+  return tenantId ? { ...job, tenant_id: tenantId } : job;
 }

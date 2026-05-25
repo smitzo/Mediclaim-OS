@@ -2,6 +2,7 @@ export type JobStatus = "queued" | "processing" | "succeeded" | "partial" | "fai
 
 export type ClaimJob = {
   job_id: string;
+  tenant_id: string;
   claim_id: string;
   filename: string;
   status: JobStatus;
