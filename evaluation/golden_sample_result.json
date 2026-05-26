@@ -1,0 +1,19 @@
+{
+  "source_pdf": "data/sample_data.pdf",
+  "expected_pages": 18,
+  "demo_pdfs": [
+    {
+      "path": "data/demo_pdfs/demo_claim_short_1.pdf",
+      "expected_pages": 3
+    },
+    {
+      "path": "data/demo_pdfs/demo_claim_short_2.pdf",
+      "expected_pages": 3
+    },
+    {
+      "path": "data/demo_pdfs/demo_claim_short_3.pdf",
+      "expected_pages": 3
+    }
+  ],
+  "minimum_demo_pdf_bytes": 50000
+}
