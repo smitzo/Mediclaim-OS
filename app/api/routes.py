@@ -14,6 +14,7 @@ from app.core.schemas import (
     AuthRegisterRequest,
     AuthSession,
     AuthSigninRequest,
+    JobStatus,
 )
 from app.services.processor import process_claim_pdf
 from app.services.auth import auth_store
@@ -168,9 +169,22 @@ async def submit_claim_batch(
     summary="List recent claim jobs",
     tags=["Claims"],
 )
-async def list_claim_jobs(limit: int = 100, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> list[ClaimJob]:
+async def list_claim_jobs(
+    limit: int = 100,
+    offset: int = 0,
+    status: JobStatus | None = None,
+    q: str | None = None,
+    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> list[ClaimJob]:
     bounded_limit = max(1, min(limit, 500))
-    return storage.list_jobs(limit=bounded_limit, tenant_id=_tenant_id(tenant_id))
+    bounded_offset = max(0, offset)
+    return storage.list_jobs(
+        limit=bounded_limit,
+        tenant_id=_tenant_id(tenant_id),
+        status=status,
+        query=q,
+        offset=bounded_offset,
+    )
 
 
 @router.get(

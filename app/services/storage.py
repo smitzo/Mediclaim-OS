@@ -62,15 +62,31 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim job not found.")
         return ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
 
-    def list_jobs(self, limit: int = 100, tenant_id: str | None = None) -> list[ClaimJob]:
+    def list_jobs(
+        self,
+        limit: int = 100,
+        tenant_id: str | None = None,
+        status: JobStatus | None = None,
+        query: str | None = None,
+        offset: int = 0,
+    ) -> list[ClaimJob]:
         jobs: list[ClaimJob] = []
+        skipped = 0
         safe_tenant_id = _safe_identifier(tenant_id) if tenant_id else None
+        normalized_query = query.strip().lower() if query else ""
         for path in sorted(self.job_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
             try:
                 job = ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
             except Exception:
                 continue
             if safe_tenant_id and job.tenant_id != safe_tenant_id:
+                continue
+            if status and job.status != status:
+                continue
+            if normalized_query and normalized_query not in f"{job.claim_id} {job.filename}".lower():
+                continue
+            if skipped < offset:
+                skipped += 1
                 continue
             jobs.append(job)
             if len(jobs) >= limit:
