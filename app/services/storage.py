@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core.schemas import ClaimJob, ClaimResponse, JobStatus
+from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -33,7 +33,8 @@ class ClaimStorage:
         self.upload_dir = self.base_dir / "uploads"
         self.job_dir = self.base_dir / "jobs"
         self.result_dir = self.base_dir / "results"
-        for directory in (self.upload_dir, self.job_dir, self.result_dir):
+        self.review_dir = self.base_dir / "reviews"
+        for directory in (self.upload_dir, self.job_dir, self.result_dir, self.review_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
     def create_job(self, claim_id: str, filename: str, pdf_bytes: bytes, page_count: int, tenant_id: str = "default") -> ClaimJob:
@@ -122,6 +123,31 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim result is not ready yet.")
         return ClaimResponse(**json.loads(path.read_text(encoding="utf-8")))
 
+    def get_review(self, job_id: str, tenant_id: str | None = None) -> ClaimReview:
+        job = self.get_job(job_id)
+        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
+            raise HTTPException(status_code=404, detail="Claim job not found.")
+        path = self.review_path(job_id)
+        if path.exists():
+            return ClaimReview(**json.loads(path.read_text(encoding="utf-8")))
+        return ClaimReview(job_id=job.job_id, tenant_id=job.tenant_id, updated_at=utc_now())
+
+    def save_review(self, job_id: str, tenant_id: str | None, update: ClaimReviewUpdate) -> ClaimReview:
+        job = self.get_job(job_id)
+        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
+            raise HTTPException(status_code=404, detail="Claim job not found.")
+        review = ClaimReview(
+            job_id=job.job_id,
+            tenant_id=job.tenant_id,
+            status=update.status,
+            reviewer=update.reviewer,
+            notes=update.notes,
+            corrected_data=update.corrected_data,
+            updated_at=utc_now(),
+        )
+        self.review_path(job_id).write_text(review.model_dump_json(indent=2), encoding="utf-8")
+        return review
+
     def read_pdf(self, job_id: str) -> bytes:
         path = self.pdf_path(job_id)
         if not path.exists():
@@ -136,6 +162,9 @@ class ClaimStorage:
 
     def result_path(self, job_id: str) -> Path:
         return self.result_dir / f"{_safe_identifier(job_id)}.json"
+
+    def review_path(self, job_id: str) -> Path:
+        return self.review_dir / f"{_safe_identifier(job_id)}.json"
 
 
 def _safe_identifier(value: str) -> str:

@@ -206,4 +206,21 @@ class AuthSession(BaseModel):
     demo: bool = False
 
 
+class ClaimReview(BaseModel):
+    job_id: str
+    tenant_id: str
+    status: Literal["needs_review", "approved", "rejected", "corrected"] = "needs_review"
+    reviewer: Optional[str] = None
+    notes: str = ""
+    corrected_data: dict[str, Any] = Field(default_factory=dict)
+    updated_at: str = ""
+
+
+class ClaimReviewUpdate(BaseModel):
+    status: Literal["needs_review", "approved", "rejected", "corrected"] = "needs_review"
+    reviewer: Optional[str] = None
+    notes: str = ""
+    corrected_data: dict[str, Any] = Field(default_factory=dict)
+
+
 ClaimState.model_rebuild()

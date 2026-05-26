@@ -11,6 +11,8 @@ from app.core.schemas import (
     ClaimJob,
     ClaimJobSubmitResponse,
     ClaimResponse,
+    ClaimReview,
+    ClaimReviewUpdate,
     AuthRegisterRequest,
     AuthSession,
     AuthSigninRequest,
@@ -207,6 +209,30 @@ async def get_claim_job(job_id: str, tenant_id: str | None = Header(default=None
 )
 async def get_claim_result(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimResponse:
     return storage.get_result(job_id, _tenant_id(tenant_id))
+
+
+@router.get(
+    "/claims/{job_id}/review",
+    response_model=ClaimReview,
+    summary="Get the human review state for a claim",
+    tags=["Claims"],
+)
+async def get_claim_review(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimReview:
+    return storage.get_review(job_id, _tenant_id(tenant_id))
+
+
+@router.put(
+    "/claims/{job_id}/review",
+    response_model=ClaimReview,
+    summary="Save the human review state for a claim",
+    tags=["Claims"],
+)
+async def save_claim_review(
+    job_id: str,
+    payload: ClaimReviewUpdate,
+    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> ClaimReview:
+    return storage.save_review(job_id, _tenant_id(tenant_id), payload)
 
 
 async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:

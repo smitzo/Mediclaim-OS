@@ -16,9 +16,10 @@ import {
   LogOut,
   PlayCircle,
   RefreshCw,
+  Save,
   UploadCloud
 } from "lucide-react";
-import { ClaimJob, ClaimResponse, JobStatus, getClaimResult, listJobs, submitClaims } from "@/lib/api";
+import { ClaimJob, ClaimResponse, ClaimReview, JobStatus, ReviewStatus, getClaimResult, getClaimReview, listJobs, saveClaimReview, submitClaims } from "@/lib/api";
 import { AuthSession, loadSession, registerCompany, signInCompany, signOutCompany } from "@/lib/auth";
 import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
@@ -43,6 +44,7 @@ type ResultView = "summary" | "json";
 type AuthMode = "signin" | "register";
 
 const jobFilters: JobFilter[] = ["all", "queued", "processing", "succeeded", "partial", "failed"];
+const reviewStatuses: ReviewStatus[] = ["needs_review", "approved", "corrected", "rejected"];
 
 export default function Home() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -55,6 +57,8 @@ export default function Home() {
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
   const [selectedJob, setSelectedJob] = useState<ClaimJob | null>(null);
   const [result, setResult] = useState<ClaimResponse | null>(null);
+  const [review, setReview] = useState<ClaimReview | null>(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [resultView, setResultView] = useState<ResultView>("summary");
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -104,6 +108,7 @@ export default function Home() {
       setDemoLoaded(false);
       setDemoProcessed(false);
       setResult(null);
+      setReview(null);
       setResultView("summary");
       setJobFilter("all");
       setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? null : current);
@@ -134,6 +139,7 @@ export default function Home() {
     setFiles([]);
     setSelectedJob(null);
     setResult(null);
+    setReview(null);
     setDemoLoaded(false);
     setDemoProcessed(false);
   }
@@ -143,6 +149,7 @@ export default function Home() {
     setJobs(nextJobs);
     setFiles([]);
     setResult(null);
+    setReview(null);
     setResultView("summary");
     setSelectedJob(nextJobs[0] ?? null);
     setJobFilter("all");
@@ -155,6 +162,7 @@ export default function Home() {
     setProcessingDemo(true);
     setError(null);
     setResult(null);
+    setReview(null);
     setResultView("summary");
     setJobs(getProcessingDemoJobs(session?.tenantId));
     await new Promise((resolve) => window.setTimeout(resolve, 650));
@@ -164,7 +172,9 @@ export default function Home() {
     setSelectedJob(nextSelectedJob);
     setDemoLoaded(true);
     setDemoProcessed(true);
-    setResult(nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session?.tenantId) : null);
+    const demoResult = nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session?.tenantId) : null;
+    setResult(demoResult);
+    setReview(nextSelectedJob ? emptyReview(nextSelectedJob, session?.username) : null);
     setResultView("summary");
     setProcessingDemo(false);
   }
@@ -173,6 +183,7 @@ export default function Home() {
     setJobs((current) => current.filter((job) => !isDemoJob(job.job_id)));
     setSelectedJob(null);
     setResult(null);
+    setReview(null);
     setResultView("summary");
     setDemoLoaded(false);
     setDemoProcessed(false);
@@ -206,11 +217,13 @@ export default function Home() {
   async function inspectJob(job: ClaimJob) {
     setSelectedJob(job);
     setResult(null);
+    setReview(null);
     setResultView("summary");
     if (isDemoJob(job.job_id)) {
       const demoResult = getDemoResult(job.job_id, session?.tenantId);
       if (demoResult && (job.status === "succeeded" || job.status === "partial")) {
         setResult(demoResult);
+        setReview(emptyReview(job, session?.username));
       }
       return;
     }
@@ -221,6 +234,7 @@ export default function Home() {
     setError(null);
     try {
       setResult(await getClaimResult(job.job_id, session?.tenantId, session?.token));
+      setReview(await getClaimReview(job.job_id, session?.tenantId, session?.token));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load result");
     } finally {
@@ -240,6 +254,31 @@ export default function Home() {
     anchor.download = `${selectedJob.claim_id}-result.json`;
     anchor.click();
     window.URL.revokeObjectURL(url);
+  }
+
+  async function saveReview() {
+    if (!review || !selectedJob || isDemoJob(selectedJob.job_id)) {
+      return;
+    }
+    setReviewSaving(true);
+    setError(null);
+    try {
+      setReview(await saveClaimReview(
+        selectedJob.job_id,
+        {
+          status: review.status,
+          reviewer: review.reviewer || session?.username,
+          notes: review.notes,
+          corrected_data: review.corrected_data
+        },
+        session?.tenantId,
+        session?.token
+      ));
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Unable to save review");
+    } finally {
+      setReviewSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -518,6 +557,46 @@ export default function Home() {
           </div>
 
           {result && resultView === "summary" ? <ResultSummary result={result} /> : null}
+          {result && review ? (
+            <div className="mt-5 rounded-lg border border-zinc-200 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="grid flex-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+                  <label className="block text-sm font-medium text-zinc-700">
+                    Review status
+                    <select
+                      value={review.status}
+                      onChange={(event) => setReview((current) => current ? { ...current, status: event.target.value as ReviewStatus } : current)}
+                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    >
+                      {reviewStatuses.map((status) => (
+                        <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-medium text-zinc-700">
+                    Reviewer notes
+                    <input
+                      value={review.notes}
+                      onChange={(event) => setReview((current) => current ? { ...current, notes: event.target.value } : current)}
+                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      placeholder="Add correction notes or approval context"
+                    />
+                  </label>
+                </div>
+                <button
+                  onClick={saveReview}
+                  disabled={reviewSaving || !selectedJob || isDemoJob(selectedJob.job_id)}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                >
+                  {reviewSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save review
+                </button>
+              </div>
+              {isDemoJob(selectedJob?.job_id ?? "") ? (
+                <p className="mt-3 text-xs text-zinc-500">Demo review changes are local to this screen. Live processed claims save through the review API.</p>
+              ) : null}
+            </div>
+          ) : null}
 
           {!result && !selectedJob?.error ? (
             <div className="mt-5 flex min-h-36 items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-8 text-center">
@@ -663,6 +742,18 @@ function MetricCard({ label, value, icon }: { label: string; value: number; icon
       <div className="mt-4 text-3xl font-semibold text-zinc-950">{value}</div>
     </div>
   );
+}
+
+function emptyReview(job: ClaimJob, reviewer?: string): ClaimReview {
+  return {
+    job_id: job.job_id,
+    tenant_id: job.tenant_id,
+    status: "needs_review",
+    reviewer: reviewer ?? null,
+    notes: "",
+    corrected_data: {},
+    updated_at: new Date().toISOString()
+  };
 }
 
 function ResultSummary({ result }: { result: ClaimResponse }) {
