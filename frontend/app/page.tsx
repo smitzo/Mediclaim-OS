@@ -99,7 +99,7 @@ export default function Home() {
     setLoadingJobs(true);
     setError(null);
     try {
-      const nextJobs = await listJobs(session.tenantId);
+      const nextJobs = await listJobs(session.tenantId, session.token);
       setJobs(nextJobs);
       setDemoLoaded(false);
       setDemoProcessed(false);
@@ -114,10 +114,10 @@ export default function Home() {
     }
   }, [session]);
 
-  function submitAuthForm() {
+  async function submitAuthForm() {
     const result = authMode === "register"
-      ? registerCompany(companyName, username, password)
-      : signInCompany(username, password);
+      ? await registerCompany(companyName, username, password)
+      : await signInCompany(username, password);
     if (!result.ok) {
       setAuthError(result.message);
       return;
@@ -127,8 +127,8 @@ export default function Home() {
     setPassword("");
   }
 
-  function signOut() {
-    signOutCompany();
+  async function signOut() {
+    await signOutCompany(session?.token);
     setSession(null);
     setJobs([]);
     setFiles([]);
@@ -187,7 +187,7 @@ export default function Home() {
     setUploading(true);
     setError(null);
     try {
-      const response = await submitClaims(files, session?.tenantId);
+      const response = await submitClaims(files, session?.tenantId, session?.token);
       setFiles([]);
       setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
       setDemoLoaded(false);
@@ -220,7 +220,7 @@ export default function Home() {
     setResultLoading(true);
     setError(null);
     try {
-      setResult(await getClaimResult(job.job_id, session?.tenantId));
+      setResult(await getClaimResult(job.job_id, session?.tenantId, session?.token));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load result");
     } finally {

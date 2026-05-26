@@ -1,15 +1,8 @@
-export type CompanyAccount = {
-  tenantId: string;
-  companyName: string;
-  username: string;
-  password: string;
-  createdAt: string;
-};
-
 export type AuthSession = {
   tenantId: string;
   companyName: string;
   username: string;
+  token: string;
   demo: boolean;
 };
 
@@ -17,15 +10,8 @@ export type AuthResult =
   | { ok: true; session: AuthSession }
   | { ok: false; message: string };
 
-const ACCOUNTS_KEY = "claimops.companyAccounts";
 const SESSION_KEY = "claimops.authSession";
-
-const demoSession: AuthSession = {
-  tenantId: "tenant-demo-bypass",
-  companyName: "Demo Claims Company",
-  username: "demo",
-  demo: true
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export function loadSession(): AuthSession | null {
   const stored = window.localStorage.getItem(SESSION_KEY);
@@ -40,79 +26,49 @@ export function loadSession(): AuthSession | null {
   }
 }
 
-export function registerCompany(companyName: string, username: string, password: string): AuthResult {
-  const normalizedCompany = companyName.trim();
-  const normalizedUsername = username.trim().toLowerCase();
-  if (!normalizedCompany || !normalizedUsername || !password) {
-    return { ok: false, message: "Company name, username, and password are required." };
-  }
-  if (normalizedUsername === "demo") {
-    return { ok: false, message: "The demo username is reserved for the bypass account." };
-  }
-
-  const accounts = loadAccounts();
-  if (accounts.some((account) => account.username === normalizedUsername)) {
-    return { ok: false, message: "That username is already registered." };
-  }
-
-  const account: CompanyAccount = {
-    tenantId: `tenant-${normalizedUsername.replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
-    companyName: normalizedCompany,
-    username: normalizedUsername,
-    password,
-    createdAt: new Date().toISOString()
-  };
-  saveAccounts([...accounts, account]);
-  return createSession(account, false);
+export async function registerCompany(companyName: string, username: string, password: string): Promise<AuthResult> {
+  return authRequest("/api/auth/register-company", { company_name: companyName, username, password });
 }
 
-export function signInCompany(username: string, password: string): AuthResult {
-  const normalizedUsername = username.trim().toLowerCase();
-  if (normalizedUsername === "demo" && password === "demo") {
-    saveSession(demoSession);
-    return { ok: true, session: demoSession };
-  }
-
-  const account = loadAccounts().find((item) => item.username === normalizedUsername && item.password === password);
-  if (!account) {
-    return { ok: false, message: "Invalid company username or password." };
-  }
-  return createSession(account, false);
+export async function signInCompany(username: string, password: string): Promise<AuthResult> {
+  return authRequest("/api/auth/sign-in", { username, password });
 }
 
-export function signOutCompany() {
+export async function signOutCompany(token?: string) {
+  if (token) {
+    await fetch(`${API_BASE_URL}/api/auth/sign-out`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(() => undefined);
+  }
   window.localStorage.removeItem(SESSION_KEY);
 }
 
-function createSession(account: CompanyAccount, demo: boolean): AuthResult {
-  const session: AuthSession = {
-    tenantId: account.tenantId,
-    companyName: account.companyName,
-    username: account.username,
-    demo
-  };
-  saveSession(session);
-  return { ok: true, session };
-}
-
-function loadAccounts(): CompanyAccount[] {
-  const stored = window.localStorage.getItem(ACCOUNTS_KEY);
-  if (!stored) {
-    return [];
-  }
+async function authRequest(path: string, body: Record<string, string>): Promise<AuthResult> {
   try {
-    const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed as CompanyAccount[] : [];
-  } catch {
-    window.localStorage.removeItem(ACCOUNTS_KEY);
-    return [];
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      return { ok: false, message: String(payload?.detail ?? "Authentication failed.") };
+    }
+    const session = normalizeSession(payload);
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    return { ok: true, session };
+  } catch (exc) {
+    return { ok: false, message: exc instanceof Error ? exc.message : "Authentication failed." };
   }
 }
 
-function saveAccounts(accounts: CompanyAccount[]) {
-  window.localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-}
-
-function saveSession(session: AuthSession) {
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+function normalizeSession(payload: Record<string, unknown>): AuthSession {
+  return {
+    tenantId: String(payload.tenant_id ?? ""),
+    companyName: String(payload.company_name ?? ""),
+    username: String(payload.username ?? ""),
+    token: String(payload.token ?? ""),
+    demo: Boolean(payload.demo)
+  };
 }
