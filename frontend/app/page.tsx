@@ -763,6 +763,8 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
   const lineItems = Array.isArray(bill.line_items) ? bill.line_items : [];
   const summary = result.processing_summary;
   const agents = Array.isArray(summary.agents_ran) ? summary.agents_ran.map(String) : [];
+  const confidenceCount = getRecord(summary.field_confidence);
+  const citationCount = getRecord(summary.field_citations);
 
   return (
     <div className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -799,6 +801,9 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
             <h3 className="text-sm font-semibold text-zinc-950">Processing output</h3>
             <p className="mt-1 text-sm text-zinc-500">
               {String(summary.total_pages ?? result.page_classification.length)} pages, {result.page_classification.length} classifications, {result.errors.length} errors
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {Object.keys(confidenceCount).length} confidence scores, {Object.keys(citationCount).length} field citations
             </p>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">

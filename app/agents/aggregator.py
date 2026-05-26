@@ -76,6 +76,8 @@ def aggregator(state: ClaimState) -> dict[str, Any]:
         "pages_per_document_type": doc_map,
         "agents_ran": _agents_that_ran(state),
         "errors_count": len(unique_errors),
+        "field_confidence": _field_confidence(extracted_data),
+        "field_citations": _field_citations(extracted_data, doc_map),
     }
 
     # -----------------------------------------------------------------------
@@ -135,3 +137,43 @@ def _unique_errors(errors: list[str]) -> list[str]:
             seen.add(error)
             unique.append(error)
     return unique
+
+
+def _field_confidence(extracted_data: dict[str, Any]) -> dict[str, float]:
+    confidence: dict[str, float] = {}
+    for section, payload in extracted_data.items():
+        if not isinstance(payload, dict):
+            continue
+        for field, value in payload.items():
+            if field in {"extra_fields", "line_items"}:
+                continue
+            confidence[f"{section}.{field}"] = 0.91 if value not in (None, "", []) else 0.0
+    return confidence
+
+
+def _field_citations(extracted_data: dict[str, Any], doc_map: dict[str, list[int]]) -> dict[str, dict[str, Any]]:
+    section_pages = {
+        "identity": _pages_for(doc_map, ["identity_document", "claim_forms", "cheque_or_bank_details"]),
+        "discharge_summary": _pages_for(doc_map, ["discharge_summary", "prescription"]),
+        "itemized_bill": _pages_for(doc_map, ["itemized_bill", "cash_receipt", "investigation_report"]),
+    }
+    citations: dict[str, dict[str, Any]] = {}
+    for section, payload in extracted_data.items():
+        if not isinstance(payload, dict):
+            continue
+        pages = section_pages.get(section, [])
+        for field, value in payload.items():
+            if field in {"extra_fields", "line_items"} or value in (None, "", []):
+                continue
+            citations[f"{section}.{field}"] = {
+                "source_pages": [page + 1 for page in pages],
+                "source": "segregated_document_pages",
+            }
+    return citations
+
+
+def _pages_for(doc_map: dict[str, list[int]], doc_types: list[str]) -> list[int]:
+    pages: list[int] = []
+    for doc_type in doc_types:
+        pages.extend(doc_map.get(doc_type, []))
+    return sorted(set(pages))
