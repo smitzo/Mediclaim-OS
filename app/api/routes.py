@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
@@ -11,8 +11,12 @@ from app.core.schemas import (
     ClaimJob,
     ClaimJobSubmitResponse,
     ClaimResponse,
+    AuthRegisterRequest,
+    AuthSession,
+    AuthSigninRequest,
 )
 from app.services.processor import process_claim_pdf
+from app.services.auth import auth_store
 from app.services.storage import storage
 from app.utils.pdf_utils import get_page_count
 from app.workers.tasks import process_claim_job
@@ -20,6 +24,40 @@ from app.workers.tasks import process_claim_job
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.post("/auth/register-company", response_model=AuthSession, tags=["Auth"])
+async def register_company(payload: AuthRegisterRequest) -> AuthSession:
+    return auth_store.register(payload.company_name, payload.username, payload.password)
+
+
+@router.post("/auth/sign-in", response_model=AuthSession, tags=["Auth"])
+async def sign_in(payload: AuthSigninRequest) -> AuthSession:
+    return auth_store.signin(payload.username, payload.password)
+
+
+@router.post("/auth/sign-out", tags=["Auth"])
+async def sign_out(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    auth_store.signout(_bearer_token(authorization))
+    return {"status": "signed_out"}
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token
+
+
+def _current_session(authorization: str | None = Header(default=None)) -> AuthSession:
+    return auth_store.authenticate(_bearer_token(authorization))
+
+
+@router.get("/me", response_model=AuthSession, tags=["Auth"])
+async def me(session: AuthSession = Depends(_current_session)) -> AuthSession:
+    return session
 
 
 @router.post(

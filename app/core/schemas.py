@@ -187,4 +187,23 @@ class ClaimBatchSubmitResponse(BaseModel):
     rejected: list[dict[str, str]] = Field(default_factory=list)
 
 
+class AuthRegisterRequest(BaseModel):
+    company_name: str
+    username: str
+    password: str
+
+
+class AuthSigninRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthSession(BaseModel):
+    tenant_id: str
+    company_name: str
+    username: str
+    token: str
+    demo: bool = False
+
+
 ClaimState.model_rebuild()

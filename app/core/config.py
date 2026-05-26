@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     max_upload_bytes: int = 200 * 1024 * 1024
     max_pdf_pages: int = 500
+    auth_token_ttl_seconds: int = 24 * 60 * 60
 
     # Distributed worker
     celery_broker_url: str = "redis://localhost:6379/0"
