@@ -235,6 +235,19 @@ async def save_claim_review(
     return storage.save_review(job_id, _tenant_id(tenant_id), payload)
 
 
+@router.post(
+    "/claims/{job_id}/retry",
+    response_model=ClaimJob,
+    status_code=202,
+    summary="Retry a failed or partial claim job",
+    tags=["Claims"],
+)
+async def retry_claim_job(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimJob:
+    job = storage.retry_job(job_id, _tenant_id(tenant_id))
+    _enqueue_job(job)
+    return job
+
+
 async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")

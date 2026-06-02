@@ -19,7 +19,7 @@ import {
   Save,
   UploadCloud
 } from "lucide-react";
-import { ClaimJob, ClaimResponse, ClaimReview, JobStatus, ReviewStatus, getClaimResult, getClaimReview, listJobs, saveClaimReview, submitClaims } from "@/lib/api";
+import { ClaimJob, ClaimResponse, ClaimReview, JobStatus, ReviewStatus, getClaimResult, getClaimReview, listJobs, retryClaimJob, saveClaimReview, submitClaims } from "@/lib/api";
 import { AuthSession, loadSession, registerCompany, signInCompany, signOutCompany } from "@/lib/auth";
 import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
@@ -239,6 +239,19 @@ export default function Home() {
       setError(exc instanceof Error ? exc.message : "Unable to load result");
     } finally {
       setResultLoading(false);
+    }
+  }
+
+  async function retryJob(job: ClaimJob) {
+    setError(null);
+    try {
+      const retried = await retryClaimJob(job.job_id, session?.tenantId, session?.token);
+      setJobs((current) => current.map((item) => item.job_id === retried.job_id ? retried : item));
+      setSelectedJob(retried);
+      setResult(null);
+      setReview(null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Unable to retry job");
     }
   }
 
@@ -492,14 +505,25 @@ export default function Home() {
                       </td>
                       <td className="px-5 py-3 text-zinc-600">{formatDate(job.updated_at)}</td>
                       <td className="px-5 py-3">
-                        <button
-                          onClick={() => inspectJob(job)}
-                          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          disabled={job.status === "queued" || job.status === "processing"}
-                        >
-                          <FileText className="h-4 w-4" />
-                          Inspect
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => inspectJob(job)}
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={job.status === "queued" || job.status === "processing"}
+                          >
+                            <FileText className="h-4 w-4" />
+                            Inspect
+                          </button>
+                          {(job.status === "failed" || job.status === "partial") && !isDemoJob(job.job_id) ? (
+                            <button
+                              onClick={() => retryJob(job)}
+                              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                              Retry
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -108,6 +108,18 @@ class ClaimStorage:
         self.save_job(job)
         return job
 
+    def retry_job(self, job_id: str, tenant_id: str | None = None) -> ClaimJob:
+        job = self.get_job(job_id)
+        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
+            raise HTTPException(status_code=404, detail="Claim job not found.")
+        if job.status not in {"failed", "partial"}:
+            raise HTTPException(status_code=409, detail="Only failed or partial jobs can be retried.")
+        job.status = "queued"
+        job.error = None
+        job.retry_count += 1
+        self.save_job(job)
+        return job
+
     def save_result(self, job_id: str, response: ClaimResponse) -> None:
         self.result_path(job_id).write_text(
             response.model_dump_json(indent=2),

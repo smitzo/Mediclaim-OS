@@ -10,6 +10,7 @@ export type ClaimJob = {
   updated_at: string;
   page_count: number;
   file_size_bytes: number;
+  retry_count?: number;
   error?: string | null;
   result_url?: string | null;
 };
@@ -88,6 +89,14 @@ export async function saveClaimReview(
     body: JSON.stringify(review)
   });
   return parseResponse<ClaimReview>(response);
+}
+
+export async function retryClaimJob(jobId: string, tenantId?: string, token?: string): Promise<ClaimJob> {
+  const response = await fetch(`${API_BASE_URL}/api/claims/${jobId}/retry`, {
+    method: "POST",
+    headers: requestHeaders(tenantId, token)
+  });
+  return parseResponse<ClaimJob>(response);
 }
 
 function requestHeaders(tenantId?: string, token?: string): HeadersInit {
