@@ -251,10 +251,14 @@ async def retry_claim_job(job_id: str, tenant_id: str | None = Header(default=No
 async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    if len(file.filename) > 180:
+        raise HTTPException(status_code=400, detail="Uploaded filename is too long.")
 
     pdf_bytes = await file.read()
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Uploaded file does not look like a PDF.")
     if len(pdf_bytes) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail="Uploaded PDF exceeds the configured size limit.")
 

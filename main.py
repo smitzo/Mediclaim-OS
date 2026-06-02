@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
+from app.core.observability import metrics_snapshot, request_metrics_middleware
 
 
 def configure_logging() -> None:
@@ -29,9 +30,11 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.middleware("http")(request_metrics_middleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,3 +56,8 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/metrics", tags=["Health"])
+async def metrics():
+    return metrics_snapshot()

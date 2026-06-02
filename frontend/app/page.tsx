@@ -17,6 +17,7 @@ import {
   PlayCircle,
   RefreshCw,
   Save,
+  Search,
   UploadCloud
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, ClaimReview, JobStatus, ReviewStatus, getClaimResult, getClaimReview, listJobs, retryClaimJob, saveClaimReview, submitClaims } from "@/lib/api";
@@ -45,6 +46,7 @@ type AuthMode = "signin" | "register";
 
 const jobFilters: JobFilter[] = ["all", "queued", "processing", "succeeded", "partial", "failed"];
 const reviewStatuses: ReviewStatus[] = ["needs_review", "approved", "corrected", "rejected"];
+const pageSize = 10;
 
 export default function Home() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -55,6 +57,8 @@ export default function Home() {
   const [jobs, setJobs] = useState<ClaimJob[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
+  const [jobSearch, setJobSearch] = useState("");
+  const [jobPage, setJobPage] = useState(0);
   const [selectedJob, setSelectedJob] = useState<ClaimJob | null>(null);
   const [result, setResult] = useState<ClaimResponse | null>(null);
   const [review, setReview] = useState<ClaimReview | null>(null);
@@ -90,11 +94,20 @@ export default function Home() {
   }, [demoLoaded, demoProcessed]);
 
   const filteredJobs = useMemo(() => {
-    if (jobFilter === "all") {
-      return jobs;
-    }
-    return jobs.filter((job) => job.status === jobFilter);
-  }, [jobFilter, jobs]);
+    const normalizedSearch = jobSearch.trim().toLowerCase();
+    return jobs.filter((job) => {
+      const matchesStatus = jobFilter === "all" || job.status === jobFilter;
+      const matchesSearch = !normalizedSearch || `${job.claim_id} ${job.filename}`.toLowerCase().includes(normalizedSearch);
+      return matchesStatus && matchesSearch;
+    });
+  }, [jobFilter, jobSearch, jobs]);
+
+  const visibleJobs = useMemo(() => {
+    const start = jobPage * pageSize;
+    return filteredJobs.slice(start, start + pageSize);
+  }, [filteredJobs, jobPage]);
+
+  const totalJobPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
 
   const refreshJobs = useCallback(async () => {
     if (!session) {
@@ -111,6 +124,7 @@ export default function Home() {
       setReview(null);
       setResultView("summary");
       setJobFilter("all");
+      setJobPage(0);
       setSelectedJob((current) => current ? nextJobs.find((job) => job.job_id === current.job_id) ?? null : current);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load jobs");
@@ -153,6 +167,7 @@ export default function Home() {
     setResultView("summary");
     setSelectedJob(nextJobs[0] ?? null);
     setJobFilter("all");
+    setJobPage(0);
     setDemoLoaded(true);
     setDemoProcessed(false);
     setError(null);
@@ -170,6 +185,7 @@ export default function Home() {
     const nextSelectedJob = nextJobs[0] ?? null;
     setJobs(nextJobs);
     setSelectedJob(nextSelectedJob);
+    setJobPage(0);
     setDemoLoaded(true);
     setDemoProcessed(true);
     const demoResult = nextSelectedJob ? getDemoResult(nextSelectedJob.job_id, session?.tenantId) : null;
@@ -188,6 +204,7 @@ export default function Home() {
     setDemoLoaded(false);
     setDemoProcessed(false);
     setJobFilter("all");
+    setJobPage(0);
     setError(null);
   }
 
@@ -204,6 +221,7 @@ export default function Home() {
       setDemoLoaded(false);
       setDemoProcessed(false);
       setJobFilter("all");
+      setJobPage(0);
       if (response.rejected.length) {
         setError(`${response.rejected.length} file(s) were rejected. Check PDF type, size, or page limits.`);
       }
@@ -253,6 +271,11 @@ export default function Home() {
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to retry job");
     }
+  }
+
+  function changeJobFilter(filter: JobFilter) {
+    setJobFilter(filter);
+    setJobPage(0);
   }
 
   function downloadResult() {
@@ -464,11 +487,23 @@ export default function Home() {
                 <h2 className="text-base font-semibold text-zinc-950">Recent claim jobs</h2>
                 <p className="text-sm text-zinc-500">Jobs poll automatically while active.</p>
               </div>
+              <label className="mt-4 flex h-10 max-w-md items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-600">
+                <Search className="h-4 w-4" />
+                <input
+                  value={jobSearch}
+                  onChange={(event) => {
+                    setJobSearch(event.target.value);
+                    setJobPage(0);
+                  }}
+                  className="h-full flex-1 bg-transparent outline-none"
+                  placeholder="Search claim ID or filename"
+                />
+              </label>
               <div className="mt-4 flex flex-wrap gap-2">
                 {jobFilters.map((filter) => (
                   <button
                     key={filter}
-                    onClick={() => setJobFilter(filter)}
+                    onClick={() => changeJobFilter(filter)}
                     className={`h-8 rounded-md border px-3 text-xs font-semibold ${
                       jobFilter === filter
                         ? "border-blue-700 bg-blue-700 text-white"
@@ -493,7 +528,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {filteredJobs.map((job) => (
+                  {visibleJobs.map((job) => (
                     <tr key={job.job_id} className={selectedJob?.job_id === job.job_id ? "bg-blue-50/60" : "hover:bg-zinc-50"}>
                       <td className="px-5 py-3 font-medium text-zinc-950">{job.claim_id}</td>
                       <td className="max-w-64 truncate px-5 py-3 text-zinc-600">{job.filename}</td>
@@ -539,6 +574,27 @@ export default function Home() {
                   ) : null}
                 </tbody>
               </table>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-zinc-100 px-6 py-4 text-sm text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Showing {visibleJobs.length ? jobPage * pageSize + 1 : 0}-{Math.min((jobPage + 1) * pageSize, filteredJobs.length)} of {filteredJobs.length}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setJobPage((current) => Math.max(0, current - 1))}
+                  disabled={jobPage === 0}
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setJobPage((current) => Math.min(totalJobPages - 1, current + 1))}
+                  disabled={jobPage >= totalJobPages - 1}
+                  className="h-9 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
         </section>

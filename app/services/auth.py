@@ -33,6 +33,8 @@ class AuthStore:
         username = username.strip().lower()
         if not company_name or not username or not password:
             raise HTTPException(status_code=400, detail="Company name, username, and password are required.")
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
         if username == "demo":
             raise HTTPException(status_code=400, detail="The demo username is reserved.")
 
