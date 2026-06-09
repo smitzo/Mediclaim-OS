@@ -5,9 +5,7 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
-  CircleX,
   Clock3,
-  Database,
   Download,
   FileArchive,
   FileText,
@@ -22,7 +20,8 @@ import {
 } from "lucide-react";
 import { ClaimJob, ClaimResponse, ClaimReview, JobStatus, ReviewStatus, getClaimResult, getClaimReview, listJobs, retryClaimJob, saveClaimReview, submitClaims } from "@/lib/api";
 import { AuthSession, loadSession, registerCompany, signInCompany, signOutCompany } from "@/lib/auth";
-import { getDemoJobs, getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
+import { DemoPdf, demoPdfToFile, demoPdfs } from "@/lib/demo-pdfs";
+import { getDemoResult, getDemoSummary, getProcessedDemoJobs, getProcessingDemoJobs, isDemoJob } from "@/lib/demo-data";
 
 const statusStyles: Record<string, string> = {
   queued: "bg-slate-100 text-slate-700 ring-slate-200",
@@ -56,6 +55,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [jobs, setJobs] = useState<ClaimJob[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [selectedDemoPdf, setSelectedDemoPdf] = useState<DemoPdf | null>(null);
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
   const [jobSearch, setJobSearch] = useState("");
   const [jobPage, setJobPage] = useState(0);
@@ -158,22 +158,11 @@ export default function Home() {
     setDemoProcessed(false);
   }
 
-  function loadDemoData() {
-    const nextJobs = getDemoJobs(session?.tenantId);
-    setJobs(nextJobs);
-    setFiles([]);
-    setResult(null);
-    setReview(null);
-    setResultView("summary");
-    setSelectedJob(nextJobs[0] ?? null);
-    setJobFilter("all");
-    setJobPage(0);
-    setDemoLoaded(true);
-    setDemoProcessed(false);
-    setError(null);
-  }
-
   async function processDemoData() {
+    if (session?.demo && !selectedDemoPdf) {
+      setError("Select one demo PDF below before processing demo data.");
+      return;
+    }
     setProcessingDemo(true);
     setError(null);
     setResult(null);
@@ -195,17 +184,17 @@ export default function Home() {
     setProcessingDemo(false);
   }
 
-  function clearDemoData() {
-    setJobs((current) => current.filter((job) => !isDemoJob(job.job_id)));
-    setSelectedJob(null);
-    setResult(null);
-    setReview(null);
-    setResultView("summary");
-    setDemoLoaded(false);
-    setDemoProcessed(false);
-    setJobFilter("all");
-    setJobPage(0);
+  async function selectDemoPdf(pdf: DemoPdf) {
     setError(null);
+    try {
+      setSelectedDemoPdf(pdf);
+      setFiles([await demoPdfToFile(pdf)]);
+      setResult(null);
+      setReview(null);
+      setSelectedJob(null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Unable to select demo PDF");
+    }
   }
 
   async function uploadSelectedFiles() {
@@ -217,6 +206,7 @@ export default function Home() {
     try {
       const response = await submitClaims(files, session?.tenantId, session?.token);
       setFiles([]);
+      setSelectedDemoPdf(null);
       setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
       setDemoLoaded(false);
       setDemoProcessed(false);
@@ -381,30 +371,6 @@ export default function Home() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center lg:justify-end">
               <button
-                onClick={loadDemoData}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
-              >
-                <Database className="h-4 w-4" />
-                Load demo data
-              </button>
-              <button
-                onClick={processDemoData}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                disabled={processingDemo}
-              >
-                {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-                Process demo data
-              </button>
-              {demoLoaded ? (
-                <button
-                  onClick={clearDemoData}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
-                >
-                  <CircleX className="h-4 w-4" />
-                  Clear demo
-                </button>
-              ) : null}
-              <button
                 onClick={refreshJobs}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-100"
                 disabled={loadingJobs}
@@ -458,9 +424,37 @@ export default function Home() {
                 type="file"
                 accept="application/pdf"
                 multiple
-                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => {
+                  setSelectedDemoPdf(null);
+                  setFiles(Array.from(event.target.files ?? []));
+                }}
               />
             </label>
+
+            {session.demo ? (
+              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                <p className="text-sm font-medium text-blue-900">Demo PDFs</p>
+                <p className="mt-1 text-xs leading-5 text-blue-800">
+                  Select one of these sample PDFs, then use the single process button below to show demo outputs.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {demoPdfs.map((pdf) => (
+                    <button
+                      key={pdf.id}
+                      onClick={() => selectDemoPdf(pdf)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm ${
+                        selectedDemoPdf?.id === pdf.id
+                          ? "border-blue-600 bg-white text-blue-900"
+                          : "border-blue-200 bg-blue-50 text-blue-900 hover:bg-white"
+                      }`}
+                    >
+                      <span className="font-medium">{pdf.label}</span>
+                      <span className="shrink-0 text-xs text-blue-700">{pdf.pages} pages, {pdf.sizeLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-5 max-h-44 space-y-2 overflow-auto">
               {files.map((file) => (
@@ -471,14 +465,25 @@ export default function Home() {
               ))}
             </div>
 
-            <button
-              onClick={uploadSelectedFiles}
-              disabled={!files.length || uploading}
-              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-            >
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-              Queue {files.length || ""} file{files.length === 1 ? "" : "s"}
-            </button>
+            {session.demo ? (
+              <button
+                onClick={processDemoData}
+                disabled={processingDemo || !selectedDemoPdf}
+                className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {processingDemo ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
+                Process demo PDF data
+              </button>
+            ) : (
+              <button
+                onClick={uploadSelectedFiles}
+                disabled={!files.length || uploading}
+                className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+                Queue {files.length || ""} file{files.length === 1 ? "" : "s"}
+              </button>
+            )}
           </div>
 
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
