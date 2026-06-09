@@ -77,34 +77,42 @@ class AuthStore:
 
     def authenticate(self, token: str | None) -> AuthSession:
         if not token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
-        sessions = self._read_json(self.sessions_path, {})
-        session = sessions.get(token)
-        if not session or session.get("expires_at", 0) < time.time():
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or invalid.")
-        return AuthSession(token=token, **{k: v for k, v in session.items() if k != "expires_at"})
+            raise HTTPException(status_code=401, detail="Authentication required.")
+        session = self._read_json(self.sessions_path, {}).get(_token_hash(token))
+        if not session or session.get("version") != 2 or session.get("expires_at", 0) <= time.time():
+            raise HTTPException(status_code=401, detail="Session expired or invalid.")
+        # Permissions are read from current server-controlled membership, not a stale session.
+        if not session["demo"]:
+            account = next((a for a in self._read_json(self.accounts_path, [])
+                            if a["username"] == session["username"] and a["tenant_id"] == session["tenant_id"]), None)
+            if not account:
+                raise HTTPException(status_code=401, detail="Account is unavailable.")
+            session["role"] = account.get("role", "uploader")
+        return AuthSession(token=token, **{k: v for k, v in session.items() if k not in {"version", "csrf_hash"}})
+
+    def verify_csrf(self, token: str, csrf: str) -> bool:
+        session = self._read_json(self.sessions_path, {}).get(_token_hash(token), {})
+        return hmac.compare_digest(session.get("csrf_hash", ""), _token_hash(csrf))
 
     def signout(self, token: str | None) -> None:
-        if not token:
-            return
         sessions = self._read_json(self.sessions_path, {})
-        sessions.pop(token, None)
+        sessions.pop(_token_hash(token or ""), None)
         self._write_json(self.sessions_path, sessions)
 
     def _create_session(self, account: dict[str, Any], demo: bool) -> AuthSession:
         token = secrets.token_urlsafe(32)
+        csrf = secrets.token_urlsafe(32)
         session = {
-            "tenant_id": account["tenant_id"],
-            "company_name": account["company_name"],
-            "username": account["username"],
-            "demo": demo,
-            "role": account.get("role", "uploader"),
-            "expires_at": int(time.time()) + settings.auth_token_ttl_seconds,
+            "tenant_id": account["tenant_id"], "company_name": account["company_name"],
+            "username": account["username"], "role": account.get("role", "uploader"),
+            "demo": demo, "expires_at": int(time.time()) + settings.auth_token_ttl_seconds,
+            "csrf_hash": _token_hash(csrf), "version": 2,
         }
-        sessions = self._read_json(self.sessions_path, {})
-        sessions[token] = session
+        sessions = {key: value for key, value in self._read_json(self.sessions_path, {}).items()
+                    if value.get("version") == 2 and value.get("expires_at", 0) > time.time()}
+        sessions[_token_hash(token)] = session
         self._write_json(self.sessions_path, sessions)
-        return AuthSession(token=token, **{k: v for k, v in session.items() if k != "expires_at"})
+        return AuthSession(token=token, csrf_token=csrf, **{k: v for k, v in session.items() if k not in {"csrf_hash", "version"}})
 
     def _read_json(self, path: Path, fallback: Any) -> Any:
         if not path.exists():
@@ -116,6 +124,10 @@ class AuthStore:
 
     def _write_json(self, path: Path, value: Any) -> None:
         path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _hash_password(password: str, salt: str) -> str:

@@ -203,7 +203,9 @@ class AuthSession(BaseModel):
     tenant_id: str
     company_name: str
     username: str
-    token: str
+    token: str = Field(default="", exclude=True)
+    csrf_token: str = ""
+    expires_at: int = 0
     role: Literal["uploader", "reviewer", "administrator"] = "uploader"
     demo: bool = False
 

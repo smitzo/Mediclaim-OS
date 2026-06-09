@@ -26,6 +26,7 @@ def client(tmp_path, monkeypatch):
         claim_id=claim_id, status="success", extracted_data={"identity": {"patient_name": "Synthetic Patient"}}
     ))
     with TestClient(app) as test_client:
+        test_client.headers["X-CSRF-Token"] = test_client.get("/api/auth/csrf").json()["csrf_token"]
         yield test_client
 
 

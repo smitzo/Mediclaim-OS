@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
+import hmac
+import secrets
 
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
@@ -26,42 +28,75 @@ from app.workers.tasks import process_claim_job
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+SESSION_COOKIE = "claimops_session"
+CSRF_COOKIE = "claimops_csrf"
+
+
+async def _csrf_guard(request: Request) -> None:
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return
+    origin = request.headers.get("origin")
+    allowed = {v.strip() for v in settings.allowed_origins.split(",")}
+    if origin and origin not in allowed:
+        raise HTTPException(status_code=403, detail="Request origin is not allowed.")
+    cookie = request.cookies.get(CSRF_COOKIE, "")
+    header = request.headers.get("X-CSRF-Token", "")
+    if not cookie or not header or not hmac.compare_digest(cookie, header):
+        raise HTTPException(status_code=403, detail="Valid CSRF protection is required.")
+
+
+router = APIRouter(dependencies=[Depends(_csrf_guard)])
+
+
+def _session_response(request: Request, response: Response, session: AuthSession) -> AuthSession:
+    for key, value in ((SESSION_COOKIE, session.token), (CSRF_COOKIE, session.csrf_token)):
+        response.set_cookie(key, value, max_age=settings.auth_token_ttl_seconds,
+                            httponly=True, secure=settings.auth_cookie_secure, samesite="lax", path="/")
+    response.headers["Cache-Control"] = "no-store"
+    return session
+
+
+@router.get("/auth/csrf", tags=["Auth"])
+async def csrf(request: Request, response: Response):
+    token = request.cookies.get(CSRF_COOKIE) or secrets.token_urlsafe(32)
+    response.set_cookie(CSRF_COOKIE, token, httponly=True, secure=settings.auth_cookie_secure, samesite="lax")
+    response.headers["Cache-Control"] = "no-store"
+    return {"csrf_token": token}
 
 
 @router.post("/auth/register-company", response_model=AuthSession, tags=["Auth"])
-async def register_company(payload: AuthRegisterRequest) -> AuthSession:
-    return auth_store.register(payload.company_name, payload.username, payload.password)
+async def register_company(payload: AuthRegisterRequest, request: Request, response: Response) -> AuthSession:
+    return _session_response(request, response, auth_store.register(payload.company_name, payload.username, payload.password))
 
 
 @router.post("/auth/sign-in", response_model=AuthSession, tags=["Auth"])
-async def sign_in(payload: AuthSigninRequest) -> AuthSession:
-    return auth_store.signin(payload.username, payload.password)
+async def sign_in(payload: AuthSigninRequest, request: Request, response: Response) -> AuthSession:
+    return _session_response(request, response, auth_store.signin(payload.username, payload.password))
 
 
 @router.post("/auth/sign-out", tags=["Auth"])
-async def sign_out(authorization: str | None = Header(default=None)) -> dict[str, str]:
-    auth_store.signout(_bearer_token(authorization))
+async def sign_out(request: Request, response: Response) -> dict[str, str]:
+    token = request.cookies.get(SESSION_COOKIE)
+    if token and not auth_store.verify_csrf(token, request.headers.get("X-CSRF-Token", "")):
+        raise HTTPException(status_code=403, detail="Invalid session CSRF token.")
+    auth_store.signout(token)
+    response.delete_cookie(SESSION_COOKIE, secure=settings.auth_cookie_secure, httponly=True, samesite="lax")
+    response.delete_cookie(CSRF_COOKIE, secure=settings.auth_cookie_secure, httponly=True, samesite="lax")
     return {"status": "signed_out"}
 
 
-def _bearer_token(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        return None
-    return token
-
-
 async def _current_session(
-    authorization: str | None = Header(default=None),
+    request: Request,
     tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
 ) -> AuthSession:
-    session = auth_store.authenticate(_bearer_token(authorization))
+    token = request.cookies.get(SESSION_COOKIE)
+    session = auth_store.authenticate(token)
+    csrf = request.cookies.get(CSRF_COOKIE, "")
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not auth_store.verify_csrf(token, csrf):
+        raise HTTPException(status_code=403, detail="Invalid session CSRF token.")
     if tenant_id is not None and tenant_id.strip() != session.tenant_id:
         raise HTTPException(status_code=403, detail="Tenant header conflicts with the authenticated session.")
-    return session
+    return session.model_copy(update={"csrf_token": csrf})
 
 
 def require_role(*allowed: str):

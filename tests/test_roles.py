@@ -11,7 +11,8 @@ def set_role(client, role):
     accounts[0]["role"] = role
     path.write_text(json.dumps(accounts))
     session = client.post("/api/auth/sign-in", json={"username": "alpha", "password": "test-password-123"}).json()
-    return {"Authorization": f"Bearer {session['token']}"}, session
+    client.headers["X-CSRF-Token"] = session["csrf_token"]
+    return {"Cookie": "; ".join(f"{k}={v}" for k, v in client.cookies.items()), "X-CSRF-Token": session["csrf_token"]}, session
 
 
 @pytest.mark.parametrize("role,upload,review", [("uploader", 202, 403), ("reviewer", 403, 200), ("administrator", 202, 200)])

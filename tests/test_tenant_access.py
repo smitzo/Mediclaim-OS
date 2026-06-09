@@ -8,7 +8,8 @@ def login(client, name="alpha"):
         "company_name": name, "username": name, "password": "test-password-123"})
     assert response.status_code == 200
     session = response.json()
-    return {"Authorization": f"Bearer {session['token']}"}, session
+    client.headers["X-CSRF-Token"] = session["csrf_token"]
+    return {"Cookie": "; ".join(f"{k}={v}" for k, v in client.cookies.items()), "X-CSRF-Token": session["csrf_token"]}, session
 
 
 @pytest.mark.parametrize("method,path", [
