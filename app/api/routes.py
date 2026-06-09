@@ -54,8 +54,14 @@ def _bearer_token(authorization: str | None) -> str | None:
     return token
 
 
-def _current_session(authorization: str | None = Header(default=None)) -> AuthSession:
-    return auth_store.authenticate(_bearer_token(authorization))
+async def _current_session(
+    authorization: str | None = Header(default=None),
+    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+) -> AuthSession:
+    session = auth_store.authenticate(_bearer_token(authorization))
+    if tenant_id is not None and tenant_id.strip() != session.tenant_id:
+        raise HTTPException(status_code=403, detail="Tenant header conflicts with the authenticated session.")
+    return session
 
 
 @router.get("/me", response_model=AuthSession, tags=["Auth"])
@@ -72,6 +78,7 @@ async def me(session: AuthSession = Depends(_current_session)) -> AuthSession:
 async def process_claim(
     claim_id: str = Form(..., description="Unique claim identifier"),
     file: UploadFile = File(..., description="Multi-page PDF claim document"),
+    session: AuthSession = Depends(_current_session),
 ) -> JSONResponse:
     """
     Upload a multi-page PDF insurance claim and receive structured extracted data.
@@ -118,10 +125,10 @@ async def process_claim(
 async def submit_claim_job(
     claim_id: str = Form(..., description="Business claim identifier"),
     file: UploadFile = File(..., description="PDF claim document"),
-    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    session: AuthSession = Depends(_current_session),
 ) -> ClaimJobSubmitResponse:
     pdf_bytes, page_count = await _validated_pdf(file)
-    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, _tenant_id(tenant_id))
+    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, session.tenant_id)
     _enqueue_job(job)
     return ClaimJobSubmitResponse(job=job)
 
@@ -136,7 +143,7 @@ async def submit_claim_job(
 async def submit_claim_batch(
     files: list[UploadFile] = File(..., description="One or more PDF claim documents"),
     claim_ids: list[str] | None = Form(None, description="Optional claim IDs matching upload order"),
-    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    session: AuthSession = Depends(_current_session),
 ) -> ClaimBatchSubmitResponse:
     jobs: list[ClaimJob] = []
     rejected: list[dict[str, str]] = []
@@ -145,7 +152,7 @@ async def submit_claim_batch(
         claim_id = _claim_id_for_upload(upload, index, claim_ids)
         try:
             pdf_bytes, page_count = await _validated_pdf(upload)
-            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count, _tenant_id(tenant_id))
+            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count, session.tenant_id)
             _enqueue_job(job)
             jobs.append(job)
         except HTTPException as exc:
@@ -176,13 +183,13 @@ async def list_claim_jobs(
     offset: int = 0,
     status: JobStatus | None = None,
     q: str | None = None,
-    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    session: AuthSession = Depends(_current_session),
 ) -> list[ClaimJob]:
     bounded_limit = max(1, min(limit, 500))
     bounded_offset = max(0, offset)
     return storage.list_jobs(
         limit=bounded_limit,
-        tenant_id=_tenant_id(tenant_id),
+        tenant_id=session.tenant_id,
         status=status,
         query=q,
         offset=bounded_offset,
@@ -195,9 +202,9 @@ async def list_claim_jobs(
     summary="Get claim job status",
     tags=["Claims"],
 )
-async def get_claim_job(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimJob:
+async def get_claim_job(job_id: str, session: AuthSession = Depends(_current_session)) -> ClaimJob:
     job = storage.get_job(job_id)
-    _ensure_tenant_access(job, tenant_id)
+    _ensure_tenant_access(job, session.tenant_id)
     return job
 
 
@@ -207,8 +214,8 @@ async def get_claim_job(job_id: str, tenant_id: str | None = Header(default=None
     summary="Get a completed claim extraction result",
     tags=["Claims"],
 )
-async def get_claim_result(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimResponse:
-    return storage.get_result(job_id, _tenant_id(tenant_id))
+async def get_claim_result(job_id: str, session: AuthSession = Depends(_current_session)) -> ClaimResponse:
+    return storage.get_result(job_id, session.tenant_id)
 
 
 @router.get(
@@ -217,8 +224,8 @@ async def get_claim_result(job_id: str, tenant_id: str | None = Header(default=N
     summary="Get the human review state for a claim",
     tags=["Claims"],
 )
-async def get_claim_review(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimReview:
-    return storage.get_review(job_id, _tenant_id(tenant_id))
+async def get_claim_review(job_id: str, session: AuthSession = Depends(_current_session)) -> ClaimReview:
+    return storage.get_review(job_id, session.tenant_id)
 
 
 @router.put(
@@ -230,9 +237,9 @@ async def get_claim_review(job_id: str, tenant_id: str | None = Header(default=N
 async def save_claim_review(
     job_id: str,
     payload: ClaimReviewUpdate,
-    tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
+    session: AuthSession = Depends(_current_session),
 ) -> ClaimReview:
-    return storage.save_review(job_id, _tenant_id(tenant_id), payload)
+    return storage.save_review(job_id, session.tenant_id, payload)
 
 
 @router.post(
@@ -242,8 +249,8 @@ async def save_claim_review(
     summary="Retry a failed or partial claim job",
     tags=["Claims"],
 )
-async def retry_claim_job(job_id: str, tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")) -> ClaimJob:
-    job = storage.retry_job(job_id, _tenant_id(tenant_id))
+async def retry_claim_job(job_id: str, session: AuthSession = Depends(_current_session)) -> ClaimJob:
+    job = storage.retry_job(job_id, session.tenant_id)
     _enqueue_job(job)
     return job
 
@@ -291,10 +298,7 @@ def _claim_id_for_upload(upload: UploadFile, index: int, claim_ids: list[str] | 
     return stem or f"claim-{index + 1}"
 
 
-def _tenant_id(value: str | None) -> str:
-    return value.strip() if value and value.strip() else "default"
 
-
-def _ensure_tenant_access(job: ClaimJob, tenant_id: str | None) -> None:
-    if job.tenant_id != _tenant_id(tenant_id):
+def _ensure_tenant_access(job: ClaimJob, tenant_id: str) -> None:
+    if job.tenant_id != tenant_id:
         raise HTTPException(status_code=404, detail="Claim job not found.")
