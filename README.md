@@ -177,7 +177,7 @@ python -m pip install --upgrade pip setuptools wheel
 With the virtual environment activated:
 
 ```bash
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 ```
 
 Quick sanity check:
@@ -185,6 +185,13 @@ Quick sanity check:
 ```bash
 python -m compileall app
 ```
+
+For development and regression tests, install `requirements-dev.lock` with
+`pip install --require-hashes -r requirements-dev.lock`, then run `pytest -q`.
+The locks include transitive dependencies and distribution hashes. Regenerate
+them from the input files with `uv pip compile --python-version 3.11
+--generate-hashes requirements.txt -o requirements.lock` (and the corresponding
+development input/output).
 
 ### 3. Configure backend environment variables
 
