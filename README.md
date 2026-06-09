@@ -71,7 +71,7 @@ The segregator first extracts page text from the PDF and renders page images.
 To improve reliability and memory use, segregation uses a hybrid strategy:
 
 - local text heuristics first for obvious pages
-- Gemini only for pages that are still ambiguous
+- the configured LLM only for pages that are still ambiguous
 - fallback page-level classification if a chunk fails
 - lazy page rendering so hundreds of text-based invoice pages are not all converted to images
 
@@ -92,7 +92,7 @@ This follows the assignment rule that extraction agents should not process the w
 Each extraction agent now uses a text-first strategy:
 
 - deterministic text extraction is attempted first
-- Gemini is used only if needed
+- OpenAI or the configured LLM is used only if needed
 
 This makes the pipeline more stable when model JSON output is incomplete or rate-limited.
 
@@ -139,7 +139,7 @@ requirements.txt
 - LangGraph
 - Pydantic
 - PyMuPDF
-- Google Gemini API
+- OpenAI API by default, optional Gemini fallback
 
 ## Local Installation
 
@@ -197,7 +197,11 @@ cp .env.example .env
 Then edit `.env`:
 
 ```env
-GOOGLE_API_KEY=your_google_gemini_api_key
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o-mini
+GOOGLE_API_KEY=your_google_gemini_api_key_optional
+GEMINI_MODEL=gemini-3-flash-preview
 APP_ENV=development
 LOG_LEVEL=INFO
 DATA_DIR=data
@@ -209,7 +213,14 @@ WORKER_CONCURRENCY=2
 TASK_TIME_LIMIT_SECONDS=3600
 ```
 
-`GOOGLE_API_KEY` is needed for LLM-backed extraction. Some local/demo flows still work without it, but full pipeline extraction depends on Gemini.
+`OPENAI_API_KEY` is needed for OpenAI-backed extraction. Some local/demo flows still work without it, but full pipeline extraction depends on the configured LLM provider.
+
+To use Gemini instead, set:
+
+```env
+LLM_PROVIDER=gemini
+GOOGLE_API_KEY=your_google_gemini_api_key
+```
 
 ### 4. Start Redis locally
 
@@ -354,7 +365,7 @@ The frontend is still run separately from `frontend/` unless you add it to Compo
 
 - Small and text-based PDFs work best because deterministic extraction can recover fields even if LLM JSON is incomplete.
 - Large batches should use the async job endpoints so HTTP workers are not blocked.
-- Large PDFs may still depend on Gemini quota and rate limits, but text-first extraction and lazy rendering reduce unnecessary LLM and memory usage.
+- Large PDFs may still depend on LLM quota and rate limits, but text-first extraction and lazy rendering reduce unnecessary model calls and memory usage.
 - The system logs every stage to make debugging easier.
 
 ## Submission Summary

@@ -15,8 +15,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Google Generative AI (Gemini)
+    # LLM provider
+    llm_provider: str = "openai"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
     google_api_key: str = ""
+    gemini_model: str = "gemini-3-flash-preview"
 
     # App
     app_env: str = "development"
