@@ -116,7 +116,7 @@ export default function Home() {
     setLoadingJobs(true);
     setError(null);
     try {
-      const nextJobs = await listJobs(session.tenantId, session.token);
+      const nextJobs = await listJobs();
       setJobs(nextJobs);
       setDemoLoaded(false);
       setDemoProcessed(false);
@@ -147,7 +147,7 @@ export default function Home() {
   }
 
   async function signOut() {
-    await signOutCompany(session?.token);
+    try { await signOutCompany(); } catch (exc) { setError(exc instanceof Error ? exc.message : "Sign out failed"); return; }
     setSession(null);
     setJobs([]);
     setFiles([]);
@@ -204,7 +204,7 @@ export default function Home() {
     setUploading(true);
     setError(null);
     try {
-      const response = await submitClaims(files, session?.tenantId, session?.token);
+      const response = await submitClaims(files);
       setFiles([]);
       setSelectedDemoPdf(null);
       setJobs((current) => [...response.jobs, ...current.filter((job) => !isDemoJob(job.job_id))]);
@@ -241,8 +241,8 @@ export default function Home() {
     setResultLoading(true);
     setError(null);
     try {
-      setResult(await getClaimResult(job.job_id, session?.tenantId, session?.token));
-      setReview(await getClaimReview(job.job_id, session?.tenantId, session?.token));
+      setResult(await getClaimResult(job.job_id));
+      setReview(await getClaimReview(job.job_id));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to load result");
     } finally {
@@ -253,7 +253,7 @@ export default function Home() {
   async function retryJob(job: ClaimJob) {
     setError(null);
     try {
-      const retried = await retryClaimJob(job.job_id, session?.tenantId, session?.token);
+      const retried = await retryClaimJob(job.job_id);
       setJobs((current) => current.map((item) => item.job_id === retried.job_id ? retried : item));
       setSelectedJob(retried);
       setResult(null);
@@ -296,9 +296,7 @@ export default function Home() {
           reviewer: review.reviewer || session?.username,
           notes: review.notes,
           corrected_data: review.corrected_data
-        },
-        session?.tenantId,
-        session?.token
+        }
       ));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Unable to save review");
@@ -308,7 +306,11 @@ export default function Home() {
   }
 
   useEffect(() => {
-    setSession(loadSession());
+    let active = true;
+    loadSession().then((value) => { if (active) setSession(value); });
+    const expired = () => { setSession(null); setJobs([]); setResult(null); setReview(null); setSelectedJob(null); };
+    window.addEventListener("claimops:session-expired", expired);
+    return () => { active = false; window.removeEventListener("claimops:session-expired", expired); };
   }, []);
 
   useEffect(() => {
@@ -477,7 +479,7 @@ export default function Home() {
             ) : (
               <button
                 onClick={uploadSelectedFiles}
-                disabled={!files.length || uploading}
+                disabled={!files.length || uploading || session.role === "reviewer"}
                 className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
               >
                 {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
@@ -554,7 +556,7 @@ export default function Home() {
                             <FileText className="h-4 w-4" />
                             Inspect
                           </button>
-                          {(job.status === "failed" || job.status === "partial") && !isDemoJob(job.job_id) ? (
+                          {(job.status === "failed" || job.status === "partial") && session.role !== "reviewer" && !isDemoJob(job.job_id) ? (
                             <button
                               onClick={() => retryJob(job)}
                               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-800 hover:bg-zinc-100"
@@ -670,7 +672,7 @@ export default function Home() {
                 </div>
                 <button
                   onClick={saveReview}
-                  disabled={reviewSaving || !selectedJob || isDemoJob(selectedJob.job_id)}
+                  disabled={reviewSaving || session.role === "uploader" || !selectedJob || isDemoJob(selectedJob.job_id)}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                 >
                   {reviewSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
