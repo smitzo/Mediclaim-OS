@@ -50,6 +50,7 @@ class AuthStore:
             "password_hash": _hash_password(password, salt),
             "salt": salt,
             "created_at": int(time.time()),
+            "role": "administrator",
         }
         accounts.append(account)
         self._write_json(self.accounts_path, accounts)
@@ -62,6 +63,7 @@ class AuthStore:
                 "tenant_id": "tenant-demo-bypass",
                 "company_name": "Demo Claims Company",
                 "username": "demo",
+                "role": "administrator",
             }
             return self._create_session(account, demo=True)
 
@@ -96,6 +98,7 @@ class AuthStore:
             "company_name": account["company_name"],
             "username": account["username"],
             "demo": demo,
+            "role": account.get("role", "uploader"),
             "expires_at": int(time.time()) + settings.auth_token_ttl_seconds,
         }
         sessions = self._read_json(self.sessions_path, {})

@@ -204,6 +204,7 @@ class AuthSession(BaseModel):
     company_name: str
     username: str
     token: str
+    role: Literal["uploader", "reviewer", "administrator"] = "uploader"
     demo: bool = False
 
 

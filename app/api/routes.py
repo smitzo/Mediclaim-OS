@@ -64,6 +64,18 @@ async def _current_session(
     return session
 
 
+def require_role(*allowed: str):
+    async def authorized(session: AuthSession = Depends(_current_session)) -> AuthSession:
+        if session.role not in allowed:
+            raise HTTPException(status_code=403, detail="Your role does not permit this operation.")
+        return session
+    return authorized
+
+
+_upload_session = require_role("uploader", "administrator")
+_review_session = require_role("reviewer", "administrator")
+
+
 @router.get("/me", response_model=AuthSession, tags=["Auth"])
 async def me(session: AuthSession = Depends(_current_session)) -> AuthSession:
     return session
@@ -78,7 +90,7 @@ async def me(session: AuthSession = Depends(_current_session)) -> AuthSession:
 async def process_claim(
     claim_id: str = Form(..., description="Unique claim identifier"),
     file: UploadFile = File(..., description="Multi-page PDF claim document"),
-    session: AuthSession = Depends(_current_session),
+    session: AuthSession = Depends(_upload_session),
 ) -> JSONResponse:
     """
     Upload a multi-page PDF insurance claim and receive structured extracted data.
@@ -125,7 +137,7 @@ async def process_claim(
 async def submit_claim_job(
     claim_id: str = Form(..., description="Business claim identifier"),
     file: UploadFile = File(..., description="PDF claim document"),
-    session: AuthSession = Depends(_current_session),
+    session: AuthSession = Depends(_upload_session),
 ) -> ClaimJobSubmitResponse:
     pdf_bytes, page_count = await _validated_pdf(file)
     job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, session.tenant_id)
@@ -143,7 +155,7 @@ async def submit_claim_job(
 async def submit_claim_batch(
     files: list[UploadFile] = File(..., description="One or more PDF claim documents"),
     claim_ids: list[str] | None = Form(None, description="Optional claim IDs matching upload order"),
-    session: AuthSession = Depends(_current_session),
+    session: AuthSession = Depends(_upload_session),
 ) -> ClaimBatchSubmitResponse:
     jobs: list[ClaimJob] = []
     rejected: list[dict[str, str]] = []
@@ -237,9 +249,9 @@ async def get_claim_review(job_id: str, session: AuthSession = Depends(_current_
 async def save_claim_review(
     job_id: str,
     payload: ClaimReviewUpdate,
-    session: AuthSession = Depends(_current_session),
+    session: AuthSession = Depends(_review_session),
 ) -> ClaimReview:
-    return storage.save_review(job_id, session.tenant_id, payload)
+    return storage.save_review(job_id, session.tenant_id, payload.model_copy(update={"reviewer": session.username}))
 
 
 @router.post(
@@ -249,7 +261,7 @@ async def save_claim_review(
     summary="Retry a failed or partial claim job",
     tags=["Claims"],
 )
-async def retry_claim_job(job_id: str, session: AuthSession = Depends(_current_session)) -> ClaimJob:
+async def retry_claim_job(job_id: str, session: AuthSession = Depends(_upload_session)) -> ClaimJob:
     job = storage.retry_job(job_id, session.tenant_id)
     _enqueue_job(job)
     return job
