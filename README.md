@@ -141,55 +141,206 @@ requirements.txt
 - PyMuPDF
 - Google Gemini API
 
-## Setup
+## Local Installation
 
-### 1. Install dependencies
+The project has two runtimes:
+
+- backend: FastAPI, Celery, LangGraph, PyMuPDF
+- frontend: Next.js dashboard
+
+The backend should be installed inside a Python virtual environment. The frontend uses `npm` from the `frontend/` directory.
+
+### 1. Create and activate a Python virtual environment
+
+From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Upgrade packaging tools:
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+```
+
+### 2. Install backend dependencies
+
+With the virtual environment activated:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Add environment variables
+Quick sanity check:
 
-Create `.env` file:
+```bash
+python -m compileall app
+```
+
+### 3. Configure backend environment variables
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
 
 ```env
-GOOGLE_API_KEY=your_api_key_here
+GOOGLE_API_KEY=your_google_gemini_api_key
 APP_ENV=development
 LOG_LEVEL=INFO
 DATA_DIR=data
+MAX_UPLOAD_BYTES=209715200
+MAX_PDF_PAGES=500
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/1
+WORKER_CONCURRENCY=2
+TASK_TIME_LIMIT_SECONDS=3600
 ```
 
-You can copy `.env.example` as the starting point.
+`GOOGLE_API_KEY` is needed for LLM-backed extraction. Some local/demo flows still work without it, but full pipeline extraction depends on Gemini.
 
-### 3. Run the server only
+### 4. Start Redis locally
 
-This supports `/api/process` and status reads, but async jobs require Redis and a worker.
+Async claim jobs require Redis because Celery uses it as the broker/result backend.
+
+If Docker is available:
 
 ```bash
-uvicorn main:app --reload
+docker run --rm -p 6379:6379 redis:7-alpine
 ```
 
-### 4. Run the distributed stack
+Alternatively, run Redis from your OS package manager if you already have it installed.
+
+### 5. Run the backend API
+
+In one terminal, with `.venv` activated:
 
 ```bash
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Health and metrics:
+
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/metrics
+```
+
+### 6. Run the Celery worker
+
+In a second terminal, with `.venv` activated:
+
+```bash
+celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=2
+```
+
+Use this worker when testing:
+
+- `POST /api/claims`
+- `POST /api/claims/batch`
+- dashboard uploads
+- queued background processing
+
+The legacy `POST /api/process` endpoint runs synchronously and does not require Celery.
+
+### 7. Install frontend dependencies
+
+In a third terminal:
+
+```bash
+cd frontend
+npm install
+```
+
+Copy the frontend environment file:
+
+```bash
+cp .env.example .env.local
+```
+
+The default value points to the local backend:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+### 8. Run the frontend dashboard
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+If port `3000` is busy:
+
+```bash
+npm run dev -- --port 3001
+```
+
+### 9. Demo login and sample PDFs
+
+Use the built-in demo bypass:
+
+```text
+username: demo
+password: demo
+```
+
+When signed in as the demo user, the upload panel shows sample PDFs generated from `data/sample_data.pdf`. Select one demo PDF and click `Process demo PDF data` to populate demo outputs in the dashboard.
+
+### 10. Verification commands
+
+Run these before committing changes:
+
+```bash
+python -m compileall app
+python scripts/evaluate_sample_dataset.py
+cd frontend
+npm run typecheck
+```
+
+`scripts/evaluate_sample_dataset.py` checks the committed sample PDF fixtures and does not call external LLM services.
+
+## Docker Compose Setup
+
+You can run the API, worker, Redis, and shared data volume together:
+
+```bash
+cp .env.example .env
 docker compose up --build
 ```
 
 This starts:
 
-- FastAPI API server
+- FastAPI API server on `http://127.0.0.1:8000`
 - Celery worker
 - Redis queue and result backend
-- shared durable storage volume for uploaded PDFs and results
+- shared durable storage volume for uploaded PDFs, jobs, auth sessions, reviews, and results
 
-### 5. Open Swagger UI
-
-```text
-http://127.0.0.1:8000/docs
-```
+The frontend is still run separately from `frontend/` unless you add it to Compose.
 
 ## Example API Flow
 
