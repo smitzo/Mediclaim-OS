@@ -27,6 +27,15 @@ class AuthStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.accounts_path = self.base_dir / "auth_accounts.json"
         self.sessions_path = self.base_dir / "auth_sessions.json"
+        self._attempts: dict[str, list[float]] = {}
+
+    def limit_auth(self, address: str, username: str) -> None:
+        now = time.time()
+        for key in ("ip:" + address, "user:" + _token_hash(username.strip().lower())):
+            hits = [hit for hit in self._attempts.get(key, []) if hit > now - settings.auth_rate_window_seconds]
+            if len(hits) >= settings.auth_rate_limit:
+                raise HTTPException(status_code=429, detail="Too many authentication attempts.", headers={"Retry-After": str(settings.auth_rate_window_seconds)})
+            self._attempts[key] = hits + [now]
 
     def register(self, company_name: str, username: str, password: str) -> AuthSession:
         company_name = company_name.strip()
@@ -58,7 +67,7 @@ class AuthStore:
 
     def signin(self, username: str, password: str) -> AuthSession:
         username = username.strip().lower()
-        if username == "demo" and password == "demo":
+        if username == "demo" and password == "demo" and settings.auth_demo_enabled and settings.app_env != "production":
             account = {
                 "tenant_id": "tenant-demo-bypass",
                 "company_name": "Demo Claims Company",
@@ -81,6 +90,8 @@ class AuthStore:
         session = self._read_json(self.sessions_path, {}).get(_token_hash(token))
         if not session or session.get("version") != 2 or session.get("expires_at", 0) <= time.time():
             raise HTTPException(status_code=401, detail="Session expired or invalid.")
+        if session["demo"] and (not settings.auth_demo_enabled or settings.app_env == "production"):
+            raise HTTPException(status_code=401, detail="Demo authentication is disabled.")
         # Permissions are read from current server-controlled membership, not a stale session.
         if not session["demo"]:
             account = next((a for a in self._read_json(self.accounts_path, [])

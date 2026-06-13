@@ -5,6 +5,7 @@ Reads environment variables (from .env or shell).
 """
 
 from __future__ import annotations
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,11 +32,25 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 500
     auth_token_ttl_seconds: int = 24 * 60 * 60
     auth_cookie_secure: bool = False
+    auth_demo_enabled: bool = False
+    auth_rate_limit: int = 10
+    auth_rate_window_seconds: int = 300
 
     # Distributed worker
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
     worker_concurrency: int = 2
     task_time_limit_seconds: int = 60 * 60
+
+    @model_validator(mode="after")
+    def production_security(self):
+        if self.app_env == "production":
+            origins = [v.strip() for v in self.allowed_origins.split(",")]
+            if not self.auth_cookie_secure or not origins or any(not v.startswith("https://") or "*" in v for v in origins):
+                raise ValueError("Production requires secure cookies and explicit HTTPS origins.")
+            if self.auth_demo_enabled:
+                raise ValueError("Demo authentication cannot be enabled in production.")
+        return self
+
 
 settings = Settings()

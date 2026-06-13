@@ -66,11 +66,13 @@ async def csrf(request: Request, response: Response):
 
 @router.post("/auth/register-company", response_model=AuthSession, tags=["Auth"])
 async def register_company(payload: AuthRegisterRequest, request: Request, response: Response) -> AuthSession:
+    auth_store.limit_auth(request.client.host if request.client else "unknown", payload.username)
     return _session_response(request, response, auth_store.register(payload.company_name, payload.username, payload.password))
 
 
 @router.post("/auth/sign-in", response_model=AuthSession, tags=["Auth"])
 async def sign_in(payload: AuthSigninRequest, request: Request, response: Response) -> AuthSession:
+    auth_store.limit_auth(request.client.host if request.client else "unknown", payload.username)
     return _session_response(request, response, auth_store.signin(payload.username, payload.password))
 
 
