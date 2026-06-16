@@ -344,12 +344,8 @@ async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
 
 
 def _enqueue_job(job: ClaimJob) -> None:
-    try:
-        process_claim_job.delay(job.job_id)
-    except Exception as exc:
-        storage.update_job(job.job_id, "failed", error=f"Queue submission failed: {exc}")
-        logger.exception("Failed to enqueue job %s", job.job_id)
-        raise HTTPException(status_code=503, detail="Processing queue is unavailable.") from exc
+    # The durable outbox owns delivery; broker failure must not lose the accepted job.
+    storage.dispatch_outbox(process_claim_job.delay, job_id=job.job_id)
 
 
 def _claim_id_for_upload(upload: UploadFile, index: int, claim_ids: list[str] | None) -> str:

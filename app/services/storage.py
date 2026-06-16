@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import uuid
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 from app.db.database import Database
 from app.services.documents import document_store, object_key
-from app.db.schema_v1 import jobs, results, reviews, tenants
+from app.db.schema_v1 import jobs, results, reviews, tenants, outbox
 
 
 def utc_now() -> str:
@@ -49,10 +50,27 @@ class ClaimStorage:
                     connection.execute(insert(tenants).values(id=tenant_id, name=tenant_id))
                 connection.execute(insert(jobs).values(id=job_id, tenant_id=tenant_id, claim_id=claim_id, status=job.status,
                     created_at=now, version=1, deleted=False, object_key=key, checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
+                connection.execute(insert(outbox).values(id=uuid.uuid4().hex, job_id=job_id, tenant_id=tenant_id, published=False, available_at=time.time(), attempts=0))
         except Exception:
             self.documents.delete(key)
             raise
         return job
+
+    def dispatch_outbox(self, publish, job_id=None, limit=100):
+        sent = 0
+        with self.db.transaction() as connection:
+            query = select(outbox).join(jobs, jobs.c.id == outbox.c.job_id).where(outbox.c.published.is_(False), outbox.c.available_at <= time.time(), jobs.c.deleted.is_(False))
+            if job_id: query = query.where(outbox.c.job_id == job_id)
+            rows = connection.execute(query.order_by(outbox.c.available_at).limit(limit).with_for_update(skip_locked=True, of=outbox)).mappings().all()
+            for row in rows:
+                try:
+                    publish(row["job_id"])
+                except Exception:
+                    connection.execute(update(outbox).where(outbox.c.id == row["id"]).values(attempts=row["attempts"]+1, available_at=time.time()+min(60, 2**min(row["attempts"], 6))))
+                else:
+                    connection.execute(update(outbox).where(outbox.c.id == row["id"]).values(published=True))
+                    sent += 1
+        return sent
 
     def get_job(self, job_id: str, tenant_id: str | None = None) -> ClaimJob:
         with self.db.engine.connect() as connection:
