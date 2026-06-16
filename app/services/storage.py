@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 from app.db.database import Database
 from app.services.documents import document_store, object_key
-from app.db.schema_v1 import jobs, results, reviews, tenants, outbox
+from app.db.schema_v1 import jobs, results, reviews, tenants, outbox, idempotency
 
 
 def utc_now() -> str:
@@ -36,7 +36,10 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim job not found.")
         return row
 
-    def create_job(self, claim_id, filename, pdf_bytes, page_count, tenant_id="default") -> ClaimJob:
+    def create_job(self, claim_id, filename, pdf_bytes, page_count, tenant_id="default", idempotency_key=None) -> ClaimJob:
+        if idempotency_key and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", idempotency_key):
+            raise HTTPException(status_code=400, detail="Invalid idempotency key.")
+        fingerprint = hashlib.sha256(json.dumps([claim_id, filename, hashlib.sha256(pdf_bytes).hexdigest()]).encode()).hexdigest()
         job_id = uuid.uuid4().hex
         now = utc_now()
         job = ClaimJob(job_id=job_id, tenant_id=tenant_id, claim_id=claim_id,
@@ -46,11 +49,22 @@ class ClaimStorage:
         self.documents.put(key, pdf_bytes)
         try:
             with self.db.transaction() as connection:
-                if not connection.execute(select(tenants).where(tenants.c.id == tenant_id)).first():
+                tenant = connection.execute(select(tenants).where(tenants.c.id == tenant_id).with_for_update()).first()
+                if idempotency_key:
+                    previous = connection.execute(select(idempotency).where(idempotency.c.tenant_id == tenant_id, idempotency.c.key == idempotency_key)).mappings().first()
+                    if previous:
+                        if previous["fingerprint"] != fingerprint:
+                            raise HTTPException(status_code=409, detail="Idempotency key was used for another submission.")
+                        existing = self._job(connection, previous["job_id"], tenant_id)
+                        self.documents.delete(key)
+                        return ClaimJob(**existing["data"])
+                if not tenant:
                     connection.execute(insert(tenants).values(id=tenant_id, name=tenant_id))
                 connection.execute(insert(jobs).values(id=job_id, tenant_id=tenant_id, claim_id=claim_id, status=job.status,
                     created_at=now, version=1, deleted=False, object_key=key, checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
                 connection.execute(insert(outbox).values(id=uuid.uuid4().hex, job_id=job_id, tenant_id=tenant_id, published=False, available_at=time.time(), attempts=0))
+                if idempotency_key:
+                    connection.execute(insert(idempotency).values(tenant_id=tenant_id, key=idempotency_key, fingerprint=fingerprint, job_id=job_id))
         except Exception:
             self.documents.delete(key)
             raise

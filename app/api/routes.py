@@ -181,9 +181,10 @@ async def submit_claim_job(
     claim_id: str = Form(..., description="Business claim identifier"),
     file: UploadFile = File(..., description="PDF claim document"),
     session: AuthSession = Depends(_upload_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ClaimJobSubmitResponse:
     pdf_bytes, page_count = await _validated_pdf(file)
-    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, session.tenant_id)
+    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, session.tenant_id, idempotency_key)
     _enqueue_job(job)
     return ClaimJobSubmitResponse(job=job)
 
@@ -199,6 +200,7 @@ async def submit_claim_batch(
     files: list[UploadFile] = File(..., description="One or more PDF claim documents"),
     claim_ids: list[str] | None = Form(None, description="Optional claim IDs matching upload order"),
     session: AuthSession = Depends(_upload_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ClaimBatchSubmitResponse:
     jobs: list[ClaimJob] = []
     rejected: list[dict[str, str]] = []
@@ -207,10 +209,11 @@ async def submit_claim_batch(
         claim_id = _claim_id_for_upload(upload, index, claim_ids)
         try:
             pdf_bytes, page_count = await _validated_pdf(upload)
-            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count, session.tenant_id)
+            job = storage.create_job(claim_id, upload.filename or f"{claim_id}.pdf", pdf_bytes, page_count, session.tenant_id, f"{idempotency_key}:{index}" if idempotency_key else None)
             _enqueue_job(job)
             jobs.append(job)
         except HTTPException as exc:
+            if exc.status_code == 409: raise
             rejected.append({
                 "filename": upload.filename or f"file-{index}",
                 "reason": str(exc.detail),
