@@ -1,26 +1,18 @@
-"""Durable file-backed storage for claim jobs and results.
-
-The implementation intentionally uses simple files so the project runs locally
-without a database. In production, this boundary can be swapped for Postgres and
-object storage without changing API routes or worker orchestration.
-"""
-
+"""Tenant-scoped transactional records; private documents use a separate adapter."""
 from __future__ import annotations
-
+import hashlib
 import json
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 from fastapi import HTTPException
-
+from sqlalchemy import select, insert, update, func
 from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
-
-
-SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
+from app.db.database import Database
+from app.db.schema_v1 import jobs, results, reviews, tenants
 
 
 def utc_now() -> str:
@@ -28,171 +20,111 @@ def utc_now() -> str:
 
 
 class ClaimStorage:
-    def __init__(self, base_dir: str | Path) -> None:
+    def __init__(self, base_dir: str | Path, database: Database | None = None):
         self.base_dir = Path(base_dir)
         self.upload_dir = self.base_dir / "uploads"
-        self.job_dir = self.base_dir / "jobs"
-        self.result_dir = self.base_dir / "results"
-        self.review_dir = self.base_dir / "reviews"
-        for directory in (self.upload_dir, self.job_dir, self.result_dir, self.review_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.db = database or Database(settings.database_url or f"sqlite:///{self.base_dir}/claims.sqlite3", initialize=settings.app_env != "production")
 
-    def create_job(self, claim_id: str, filename: str, pdf_bytes: bytes, page_count: int, tenant_id: str = "default") -> ClaimJob:
-        now = utc_now()
+    def _job(self, connection, job_id: str, tenant_id: str | None = None):
+        query = select(jobs).where(jobs.c.id == job_id, jobs.c.deleted.is_(False))
+        if tenant_id is not None:
+            query = query.where(jobs.c.tenant_id == tenant_id)
+        row = connection.execute(query).mappings().first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Claim job not found.")
+        return row
+
+    def create_job(self, claim_id, filename, pdf_bytes, page_count, tenant_id="default") -> ClaimJob:
         job_id = uuid.uuid4().hex
-        safe_filename = _safe_filename(filename or f"{claim_id}.pdf")
-        job = ClaimJob(
-            job_id=job_id,
-            tenant_id=_safe_identifier(tenant_id or "default"),
-            claim_id=claim_id,
-            filename=safe_filename,
-            status="queued",
-            created_at=now,
-            updated_at=now,
-            page_count=page_count,
-            file_size_bytes=len(pdf_bytes),
-            result_url=f"/api/claims/{job_id}/result",
-        )
-        self.pdf_path(job_id).write_bytes(pdf_bytes)
-        self.save_job(job)
-        return job
-
-    def get_job(self, job_id: str) -> ClaimJob:
-        path = self.job_path(job_id)
-        if not path.exists():
-            raise HTTPException(status_code=404, detail="Claim job not found.")
-        return ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
-
-    def list_jobs(
-        self,
-        limit: int = 100,
-        tenant_id: str | None = None,
-        status: JobStatus | None = None,
-        query: str | None = None,
-        offset: int = 0,
-    ) -> list[ClaimJob]:
-        jobs: list[ClaimJob] = []
-        skipped = 0
-        safe_tenant_id = _safe_identifier(tenant_id) if tenant_id else None
-        normalized_query = query.strip().lower() if query else ""
-        for path in sorted(self.job_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
-            try:
-                job = ClaimJob(**json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
-                continue
-            if safe_tenant_id and job.tenant_id != safe_tenant_id:
-                continue
-            if status and job.status != status:
-                continue
-            if normalized_query and normalized_query not in f"{job.claim_id} {job.filename}".lower():
-                continue
-            if skipped < offset:
-                skipped += 1
-                continue
-            jobs.append(job)
-            if len(jobs) >= limit:
-                break
-        return jobs
-
-    def save_job(self, job: ClaimJob) -> None:
-        job.updated_at = utc_now()
-        self.job_path(job.job_id).write_text(
-            json.dumps(job.model_dump(), indent=2),
-            encoding="utf-8",
-        )
-
-    def update_job(self, job_id: str, status: JobStatus, error: str | None = None) -> ClaimJob:
-        job = self.get_job(job_id)
-        job.status = status
-        job.error = error
-        self.save_job(job)
-        return job
-
-    def retry_job(self, job_id: str, tenant_id: str | None = None) -> ClaimJob:
-        job = self.get_job(job_id)
-        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
-            raise HTTPException(status_code=404, detail="Claim job not found.")
-        if job.status not in {"failed", "partial"}:
-            raise HTTPException(status_code=409, detail="Only failed or partial jobs can be retried.")
-        job.status = "queued"
-        job.error = None
-        job.retry_count += 1
-        self.save_job(job)
-        return job
-
-    def save_result(self, job_id: str, response: ClaimResponse) -> None:
-        self.result_path(job_id).write_text(
-            response.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-
-    def get_result(self, job_id: str, tenant_id: str | None = None) -> ClaimResponse:
-        job = self.get_job(job_id)
-        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
-            raise HTTPException(status_code=404, detail="Claim job not found.")
-        path = self.result_path(job_id)
-        if not path.exists():
-            raise HTTPException(status_code=404, detail="Claim result is not ready yet.")
-        return ClaimResponse(**json.loads(path.read_text(encoding="utf-8")))
-
-    def get_review(self, job_id: str, tenant_id: str | None = None) -> ClaimReview:
-        job = self.get_job(job_id)
-        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
-            raise HTTPException(status_code=404, detail="Claim job not found.")
-        path = self.review_path(job_id)
-        if path.exists():
-            return ClaimReview(**json.loads(path.read_text(encoding="utf-8")))
-        return ClaimReview(job_id=job.job_id, tenant_id=job.tenant_id, updated_at=utc_now())
-
-    def save_review(self, job_id: str, tenant_id: str | None, update: ClaimReviewUpdate) -> ClaimReview:
-        job = self.get_job(job_id)
-        if tenant_id and job.tenant_id != _safe_identifier(tenant_id):
-            raise HTTPException(status_code=404, detail="Claim job not found.")
-        review = ClaimReview(
-            job_id=job.job_id,
-            tenant_id=job.tenant_id,
-            status=update.status,
-            reviewer=update.reviewer,
-            notes=update.notes,
-            corrected_data=update.corrected_data,
-            updated_at=utc_now(),
-        )
-        self.review_path(job_id).write_text(review.model_dump_json(indent=2), encoding="utf-8")
-        return review
-
-    def read_pdf(self, job_id: str) -> bytes:
+        now = utc_now()
+        job = ClaimJob(job_id=job_id, tenant_id=tenant_id, claim_id=claim_id,
+            filename=re.sub(r"[^A-Za-z0-9_.-]", "-", filename), status="queued", created_at=now, updated_at=now,
+            page_count=page_count, file_size_bytes=len(pdf_bytes), result_url=f"/api/claims/{job_id}/result")
         path = self.pdf_path(job_id)
-        if not path.exists():
-            raise FileNotFoundError(f"Uploaded PDF for job {job_id} is missing")
-        return path.read_bytes()
+        path.write_bytes(pdf_bytes)
+        try:
+            with self.db.transaction() as connection:
+                if not connection.execute(select(tenants).where(tenants.c.id == tenant_id)).first():
+                    connection.execute(insert(tenants).values(id=tenant_id, name=tenant_id))
+                connection.execute(insert(jobs).values(id=job_id, tenant_id=tenant_id, claim_id=claim_id, status=job.status,
+                    created_at=now, version=1, deleted=False, object_key=str(path), checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        return job
 
-    def job_path(self, job_id: str) -> Path:
-        return self.job_dir / f"{_safe_identifier(job_id)}.json"
+    def get_job(self, job_id: str, tenant_id: str | None = None) -> ClaimJob:
+        with self.db.engine.connect() as connection:
+            return ClaimJob(**self._job(connection, job_id, tenant_id)["data"])
 
-    def pdf_path(self, job_id: str) -> Path:
-        return self.upload_dir / f"{_safe_identifier(job_id)}.pdf"
+    def list_jobs(self, limit=100, tenant_id=None, status=None, query=None, offset=0):
+        statement = select(jobs.c.data).where(jobs.c.deleted.is_(False))
+        if tenant_id is not None: statement = statement.where(jobs.c.tenant_id == tenant_id)
+        if status: statement = statement.where(jobs.c.status == status)
+        if query: statement = statement.where(jobs.c.claim_id.ilike(f"%{query}%", escape="\\"))
+        with self.db.engine.connect() as connection:
+            return [ClaimJob(**row[0]) for row in connection.execute(statement.order_by(jobs.c.created_at.desc()).offset(offset).limit(limit))]
 
-    def result_path(self, job_id: str) -> Path:
-        return self.result_dir / f"{_safe_identifier(job_id)}.json"
+    def update_job(self, job_id, status: JobStatus, error=None):
+        with self.db.transaction() as connection:
+            row = self._job(connection, job_id)
+            job = ClaimJob(**row["data"]).model_copy(update={"status": status, "error": error, "updated_at": utc_now()})
+            connection.execute(update(jobs).where(jobs.c.id == job_id, jobs.c.version == row["version"]).values(status=status, data=job.model_dump(), version=row["version"]+1))
+            return job
 
-    def review_path(self, job_id: str) -> Path:
-        return self.review_dir / f"{_safe_identifier(job_id)}.json"
+    def retry_job(self, job_id, tenant_id=None):
+        with self.db.transaction() as connection:
+            row = self._job(connection, job_id, tenant_id)
+            job = ClaimJob(**row["data"])
+            if job.status not in {"failed", "partial"}:
+                raise HTTPException(status_code=409, detail="Only failed or partial jobs can be retried.")
+            job.status, job.error, job.retry_count, job.updated_at = "queued", None, job.retry_count+1, utc_now()
+            changed = connection.execute(update(jobs).where(jobs.c.id == job_id, jobs.c.version == row["version"]).values(status="queued", data=job.model_dump(), version=row["version"]+1))
+            if changed.rowcount != 1: raise HTTPException(status_code=409, detail="Job changed; reload and retry.")
+            return job
 
+    def save_result(self, job_id, response):
+        with self.db.transaction() as connection:
+            job = self._job(connection, job_id)
+            version = connection.execute(select(func.max(results.c.version)).where(results.c.job_id == job_id)).scalar() or 0
+            connection.execute(insert(results).values(job_id=job_id, version=version+1, tenant_id=job["tenant_id"], data=response.model_dump(mode="json")))
 
-def _safe_identifier(value: str) -> str:
-    cleaned = SAFE_NAME.sub("-", value).strip(".-")
-    if not cleaned:
-        raise ValueError("Identifier cannot be empty.")
-    return cleaned
+    def get_result(self, job_id, tenant_id=None):
+        with self.db.engine.connect() as connection:
+            job = self._job(connection, job_id, tenant_id)
+            row = connection.execute(select(results.c.data).where(results.c.job_id == job_id, results.c.tenant_id == job["tenant_id"]).order_by(results.c.version.desc())).first()
+            if row is None: raise HTTPException(status_code=404, detail="Claim result is not ready yet.")
+            return ClaimResponse(**row[0])
 
+    def get_review(self, job_id, tenant_id=None):
+        with self.db.engine.connect() as connection:
+            job = self._job(connection, job_id, tenant_id)
+            row = connection.execute(select(reviews.c.data).where(reviews.c.job_id == job_id, reviews.c.tenant_id == job["tenant_id"])).first()
+            return ClaimReview(**row[0]) if row else ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], updated_at=utc_now())
 
-def _safe_filename(value: str) -> str:
-    cleaned = SAFE_NAME.sub("-", value).strip(".-")
-    return cleaned or "claim.pdf"
+    def save_review(self, job_id, tenant_id, payload):
+        with self.db.transaction() as connection:
+            job = self._job(connection, job_id, tenant_id)
+            review = ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], updated_at=utc_now(), **payload.model_dump())
+            previous = connection.execute(select(reviews.c.version).where(reviews.c.job_id == job_id)).scalar()
+            if previous is None:
+                connection.execute(insert(reviews).values(job_id=job_id, tenant_id=job["tenant_id"], version=1, data=review.model_dump()))
+            else:
+                connection.execute(update(reviews).where(reviews.c.job_id == job_id).values(version=previous+1, data=review.model_dump()))
+            return review
+
+    def pdf_path(self, job_id):
+        if not re.fullmatch(r"[a-f0-9]{32}", job_id): raise HTTPException(status_code=404, detail="Claim job not found.")
+        return self.upload_dir / f"{job_id}.pdf"
+
+    def read_pdf(self, job_id):
+        self.get_job(job_id)
+        return self.pdf_path(job_id).read_bytes()
 
 
 storage = ClaimStorage(settings.data_dir)
 
 
 def response_to_jsonable(response: ClaimResponse) -> dict[str, Any]:
-    return json.loads(response.model_dump_json())
+    return response.model_dump(mode="json")

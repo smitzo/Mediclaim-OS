@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import contextmanager
 from sqlalchemy import create_engine, event, inspect
 from app.db.schema_v1 import metadata
 
@@ -17,6 +18,13 @@ class Database:
                 connection.execute("PRAGMA journal_mode=WAL")
         if initialize:
             metadata.create_all(self.engine)
+
+    @contextmanager
+    def transaction(self):
+        with self.engine.begin() as connection:
+            if self.engine.dialect.name == "sqlite":
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            yield connection
 
     def check(self):
         from sqlalchemy import text
