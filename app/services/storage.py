@@ -12,6 +12,7 @@ from sqlalchemy import select, insert, update, func
 from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 from app.db.database import Database
+from app.services.documents import document_store, object_key
 from app.db.schema_v1 import jobs, results, reviews, tenants
 
 
@@ -22,8 +23,7 @@ def utc_now() -> str:
 class ClaimStorage:
     def __init__(self, base_dir: str | Path, database: Database | None = None):
         self.base_dir = Path(base_dir)
-        self.upload_dir = self.base_dir / "uploads"
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.documents = document_store(self.base_dir)
         self.db = database or Database(settings.database_url or f"sqlite:///{self.base_dir}/claims.sqlite3", initialize=settings.app_env != "production")
 
     def _job(self, connection, job_id: str, tenant_id: str | None = None):
@@ -41,16 +41,16 @@ class ClaimStorage:
         job = ClaimJob(job_id=job_id, tenant_id=tenant_id, claim_id=claim_id,
             filename=re.sub(r"[^A-Za-z0-9_.-]", "-", filename), status="queued", created_at=now, updated_at=now,
             page_count=page_count, file_size_bytes=len(pdf_bytes), result_url=f"/api/claims/{job_id}/result")
-        path = self.pdf_path(job_id)
-        path.write_bytes(pdf_bytes)
+        key = object_key(tenant_id, job_id)
+        self.documents.put(key, pdf_bytes)
         try:
             with self.db.transaction() as connection:
                 if not connection.execute(select(tenants).where(tenants.c.id == tenant_id)).first():
                     connection.execute(insert(tenants).values(id=tenant_id, name=tenant_id))
                 connection.execute(insert(jobs).values(id=job_id, tenant_id=tenant_id, claim_id=claim_id, status=job.status,
-                    created_at=now, version=1, deleted=False, object_key=str(path), checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
+                    created_at=now, version=1, deleted=False, object_key=key, checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
         except Exception:
-            path.unlink(missing_ok=True)
+            self.documents.delete(key)
             raise
         return job
 
@@ -114,13 +114,13 @@ class ClaimStorage:
                 connection.execute(update(reviews).where(reviews.c.job_id == job_id).values(version=previous+1, data=review.model_dump()))
             return review
 
-    def pdf_path(self, job_id):
-        if not re.fullmatch(r"[a-f0-9]{32}", job_id): raise HTTPException(status_code=404, detail="Claim job not found.")
-        return self.upload_dir / f"{job_id}.pdf"
-
-    def read_pdf(self, job_id):
-        self.get_job(job_id)
-        return self.pdf_path(job_id).read_bytes()
+    def read_pdf(self, job_id, tenant_id=None):
+        with self.db.engine.connect() as connection:
+            row = self._job(connection, job_id, tenant_id)
+            content = self.documents.get(row["object_key"])
+            if hashlib.sha256(content).hexdigest() != row["checksum"]:
+                raise ValueError("Document checksum verification failed.")
+            return content
 
 
 storage = ClaimStorage(settings.data_dir)

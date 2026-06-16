@@ -263,6 +263,12 @@ async def get_claim_job(job_id: str, session: AuthSession = Depends(_current_ses
     return job
 
 
+@router.get("/claims/{job_id}/document", tags=["Claims"])
+async def get_claim_document(job_id: str, session: AuthSession = Depends(_current_session)):
+    content = storage.read_pdf(job_id, session.tenant_id)
+    return Response(content, media_type="application/pdf", headers={"Cache-Control": "no-store", "Content-Disposition": 'inline; filename="claim.pdf"', "X-Content-Type-Options": "nosniff"})
+
+
 @router.get(
     "/claims/{job_id}/result",
     response_model=ClaimResponse,

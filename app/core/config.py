@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     data_dir: str = "data"
     database_url: str = ""
+    document_store: str = "local"
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     max_upload_bytes: int = 200 * 1024 * 1024
     max_pdf_pages: int = 500
