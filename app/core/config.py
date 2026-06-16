@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
     worker_concurrency: int = 2
+    worker_lease_seconds: int = 120
     task_time_limit_seconds: int = 60 * 60
 
     @model_validator(mode="after")
