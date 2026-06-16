@@ -1,153 +1,120 @@
-"""File-backed company authentication for local multi-tenant demos.
-
-This intentionally avoids external dependencies while still using salted password
-hashes and opaque bearer tokens. In production, replace this boundary with a
-database-backed identity service and HTTP-only sessions or signed JWTs.
-"""
-
+"""Server-controlled memberships and hashed, revocable opaque sessions."""
 from __future__ import annotations
-
 import hashlib
 import hmac
-import json
 import secrets
 import time
 from pathlib import Path
-from typing import Any
-
-from fastapi import HTTPException, status
-
+from fastapi import HTTPException
+from sqlalchemy import select, insert, update, delete
+from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.schemas import AuthSession
+from app.db.database import Database
+from app.db.schema_v1 import tenants, users, memberships, sessions, auth_limits
+
+
+def _token_hash(token): return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _hash_password(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
 
 
 class AuthStore:
-    def __init__(self, base_dir: str | Path) -> None:
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.accounts_path = self.base_dir / "auth_accounts.json"
-        self.sessions_path = self.base_dir / "auth_sessions.json"
-        self._attempts: dict[str, list[float]] = {}
+    def __init__(self, base_dir: str | Path, database: Database | None = None):
+        self.db = database or Database(settings.database_url or f"sqlite:///{Path(settings.data_dir)}/claims.sqlite3", initialize=settings.app_env != "production")
 
-    def limit_auth(self, address: str, username: str) -> None:
+    def limit_auth(self, address, username):
         now = time.time()
-        for key in ("ip:" + address, "user:" + _token_hash(username.strip().lower())):
-            hits = [hit for hit in self._attempts.get(key, []) if hit > now - settings.auth_rate_window_seconds]
-            if len(hits) >= settings.auth_rate_limit:
-                raise HTTPException(status_code=429, detail="Too many authentication attempts.", headers={"Retry-After": str(settings.auth_rate_window_seconds)})
-            self._attempts[key] = hits + [now]
+        with self.db.transaction() as connection:
+            for key in ("ip:"+address, "user:"+_token_hash(username.strip().lower())):
+                row = connection.execute(select(auth_limits).where(auth_limits.c.key == key)).mappings().first()
+                if row and row["window_start"] > now-settings.auth_rate_window_seconds:
+                    if row["count"] >= settings.auth_rate_limit:
+                        raise HTTPException(status_code=429, detail="Too many authentication attempts.", headers={"Retry-After": str(settings.auth_rate_window_seconds)})
+                    connection.execute(update(auth_limits).where(auth_limits.c.key == key).values(count=row["count"]+1))
+                elif row:
+                    connection.execute(update(auth_limits).where(auth_limits.c.key == key).values(count=1, window_start=now))
+                else:
+                    connection.execute(insert(auth_limits).values(key=key, count=1, window_start=now))
 
-    def register(self, company_name: str, username: str, password: str) -> AuthSession:
-        company_name = company_name.strip()
-        username = username.strip().lower()
-        if not company_name or not username or not password:
-            raise HTTPException(status_code=400, detail="Company name, username, and password are required.")
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
-        if username == "demo":
-            raise HTTPException(status_code=400, detail="The demo username is reserved.")
+    def _new_user(self, connection, username, password):
+        if not username or username == "demo" or len(username) > 128 or len(password) < 8 or len(password) > 1024:
+            raise HTTPException(status_code=400, detail="Use a valid username and a password of 8–1024 characters.")
+        salt = secrets.token_hex(16)
+        connection.execute(insert(users).values(username=username, salt=salt, password_hash=_hash_password(password, salt), created_at=int(time.time())))
 
-        accounts = self._read_json(self.accounts_path, [])
-        if any(account["username"] == username for account in accounts):
+    def register(self, company_name, username, password):
+        username, company_name = username.strip().lower(), company_name.strip()
+        if not company_name or len(company_name) > 256: raise HTTPException(status_code=400, detail="Company name is required (maximum 256 characters).")
+        tenant_id = "tenant-"+secrets.token_hex(16)
+        try:
+            with self.db.transaction() as connection:
+                self._new_user(connection, username, password)
+                connection.execute(insert(tenants).values(id=tenant_id, name=company_name))
+                connection.execute(insert(memberships).values(tenant_id=tenant_id, username=username, role="administrator"))
+                return self._create_session(connection, dict(tenant_id=tenant_id, company_name=company_name, username=username, role="administrator"), False)
+        except IntegrityError:
             raise HTTPException(status_code=409, detail="That username is already registered.")
 
-        salt = secrets.token_hex(16)
-        account = {
-            "tenant_id": f"tenant-{_slug(username)}-{secrets.token_hex(4)}",
-            "company_name": company_name,
-            "username": username,
-            "password_hash": _hash_password(password, salt),
-            "salt": salt,
-            "created_at": int(time.time()),
-            "role": "administrator",
-        }
-        accounts.append(account)
-        self._write_json(self.accounts_path, accounts)
-        return self._create_session(account, demo=False)
-
-    def signin(self, username: str, password: str) -> AuthSession:
+    def add_member(self, principal, username, password, role):
         username = username.strip().lower()
-        if username == "demo" and password == "demo" and settings.auth_demo_enabled and settings.app_env != "production":
-            account = {
-                "tenant_id": "tenant-demo-bypass",
-                "company_name": "Demo Claims Company",
-                "username": "demo",
-                "role": "administrator",
-            }
-            return self._create_session(account, demo=True)
-
-        accounts = self._read_json(self.accounts_path, [])
-        for account in accounts:
-            expected = account["password_hash"]
-            actual = _hash_password(password, account["salt"])
-            if account["username"] == username and hmac.compare_digest(expected, actual):
-                return self._create_session(account, demo=False)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid company username or password.")
-
-    def authenticate(self, token: str | None) -> AuthSession:
-        if not token:
-            raise HTTPException(status_code=401, detail="Authentication required.")
-        session = self._read_json(self.sessions_path, {}).get(_token_hash(token))
-        if not session or session.get("version") != 2 or session.get("expires_at", 0) <= time.time():
-            raise HTTPException(status_code=401, detail="Session expired or invalid.")
-        if session["demo"] and (not settings.auth_demo_enabled or settings.app_env == "production"):
-            raise HTTPException(status_code=401, detail="Demo authentication is disabled.")
-        # Permissions are read from current server-controlled membership, not a stale session.
-        if not session["demo"]:
-            account = next((a for a in self._read_json(self.accounts_path, [])
-                            if a["username"] == session["username"] and a["tenant_id"] == session["tenant_id"]), None)
-            if not account:
-                raise HTTPException(status_code=401, detail="Account is unavailable.")
-            session["role"] = account.get("role", "uploader")
-        return AuthSession(token=token, **{k: v for k, v in session.items() if k not in {"version", "csrf_hash"}})
-
-    def verify_csrf(self, token: str, csrf: str) -> bool:
-        session = self._read_json(self.sessions_path, {}).get(_token_hash(token), {})
-        return hmac.compare_digest(session.get("csrf_hash", ""), _token_hash(csrf))
-
-    def signout(self, token: str | None) -> None:
-        sessions = self._read_json(self.sessions_path, {})
-        sessions.pop(_token_hash(token or ""), None)
-        self._write_json(self.sessions_path, sessions)
-
-    def _create_session(self, account: dict[str, Any], demo: bool) -> AuthSession:
-        token = secrets.token_urlsafe(32)
-        csrf = secrets.token_urlsafe(32)
-        session = {
-            "tenant_id": account["tenant_id"], "company_name": account["company_name"],
-            "username": account["username"], "role": account.get("role", "uploader"),
-            "demo": demo, "expires_at": int(time.time()) + settings.auth_token_ttl_seconds,
-            "csrf_hash": _token_hash(csrf), "version": 2,
-        }
-        sessions = {key: value for key, value in self._read_json(self.sessions_path, {}).items()
-                    if value.get("version") == 2 and value.get("expires_at", 0) > time.time()}
-        sessions[_token_hash(token)] = session
-        self._write_json(self.sessions_path, sessions)
-        return AuthSession(token=token, csrf_token=csrf, **{k: v for k, v in session.items() if k not in {"csrf_hash", "version"}})
-
-    def _read_json(self, path: Path, fallback: Any) -> Any:
-        if not path.exists():
-            return fallback
+        if principal.role != "administrator": raise HTTPException(status_code=403, detail="Administrator permission required.")
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return fallback
+            with self.db.transaction() as connection:
+                self._new_user(connection, username, password)
+                connection.execute(insert(memberships).values(tenant_id=principal.tenant_id, username=username, role=role))
+            return {"username": username, "role": role}
+        except IntegrityError:
+            raise HTTPException(status_code=409, detail="That username is already registered.")
 
-    def _write_json(self, path: Path, value: Any) -> None:
-        path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    def signin(self, username, password):
+        username = username.strip().lower()
+        with self.db.transaction() as connection:
+            if username == "demo" and password == "demo" and settings.auth_demo_enabled and settings.app_env != "production":
+                if not connection.execute(select(tenants).where(tenants.c.id == "tenant-demo-bypass")).first():
+                    connection.execute(insert(tenants).values(id="tenant-demo-bypass", name="Demo Claims Company"))
+                return self._create_session(connection, dict(tenant_id="tenant-demo-bypass", company_name="Demo Claims Company", username="demo", role="administrator"), True)
+            row = connection.execute(select(users, memberships.c.tenant_id, memberships.c.role, tenants.c.name.label("company_name")).join(memberships, users.c.username == memberships.c.username).join(tenants, tenants.c.id == memberships.c.tenant_id).where(users.c.username == username)).mappings().first()
+            expected = row["password_hash"] if row else "0"*64
+            actual = _hash_password(password, row["salt"] if row else "0"*32)
+            if row is None or not hmac.compare_digest(expected, actual):
+                raise HTTPException(status_code=401, detail="Invalid company username or password.")
+            return self._create_session(connection, row, False)
+
+    def authenticate(self, token):
+        if not token: raise HTTPException(status_code=401, detail="Authentication required.")
+        with self.db.engine.connect() as connection:
+            row = connection.execute(select(sessions).where(sessions.c.token_hash == _token_hash(token), sessions.c.expires_at > time.time())).mappings().first()
+            if row is None: raise HTTPException(status_code=401, detail="Session expired or invalid.")
+            data = dict(row["data"])
+            if data["demo"]:
+                if not settings.auth_demo_enabled or settings.app_env == "production":
+                    raise HTTPException(status_code=401, detail="Demo authentication is disabled.")
+            else:
+                role = connection.execute(select(memberships.c.role).where(memberships.c.username == row["username"], memberships.c.tenant_id == row["tenant_id"])).scalar()
+                if role is None: raise HTTPException(status_code=401, detail="Account is unavailable.")
+                data["role"] = role
+            return AuthSession(token=token, expires_at=int(row["expires_at"]), **data)
+
+    def verify_csrf(self, token, csrf):
+        with self.db.engine.connect() as connection:
+            expected = connection.execute(select(sessions.c.csrf_hash).where(sessions.c.token_hash == _token_hash(token), sessions.c.expires_at > time.time())).scalar()
+            return bool(expected) and hmac.compare_digest(expected, _token_hash(csrf))
+
+    def signout(self, token):
+        with self.db.transaction() as connection:
+            connection.execute(delete(sessions).where(sessions.c.token_hash == _token_hash(token or "")))
+
+    def _create_session(self, connection, account, demo):
+        token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        expires = int(time.time())+settings.auth_token_ttl_seconds
+        data = {key: account[key] for key in ("tenant_id", "company_name", "username", "role")}
+        data["demo"] = demo
+        connection.execute(delete(sessions).where(sessions.c.expires_at <= time.time()))
+        connection.execute(insert(sessions).values(token_hash=_token_hash(token), tenant_id=account["tenant_id"], username=account["username"], expires_at=expires, csrf_hash=_token_hash(csrf), data=data))
+        return AuthSession(token=token, csrf_token=csrf, expires_at=expires, **data)
 
 
-def _token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def _hash_password(password: str, salt: str) -> str:
-    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
-
-
-def _slug(value: str) -> str:
-    cleaned = "".join(char if char.isalnum() else "-" for char in value.lower()).strip("-")
-    return cleaned or "tenant"
-
-
-auth_store = AuthStore(Path(settings.data_dir) / "auth")
+auth_store = AuthStore(Path(settings.data_dir)/"auth")

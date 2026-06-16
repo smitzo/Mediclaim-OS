@@ -1,4 +1,5 @@
-import json
+from sqlalchemy import update
+from app.db.schema_v1 import memberships
 import pytest
 from app.api import routes
 from tests.test_tenant_access import login
@@ -6,10 +7,8 @@ from tests.test_tenant_access import login
 
 def set_role(client, role):
     headers, session = login(client)
-    path = routes.auth_store.accounts_path
-    accounts = json.loads(path.read_text())
-    accounts[0]["role"] = role
-    path.write_text(json.dumps(accounts))
+    with routes.auth_store.db.transaction() as connection:
+        connection.execute(update(memberships).values(role=role))
     session = client.post("/api/auth/sign-in", json={"username": "alpha", "password": "test-password-123"}).json()
     client.headers["X-CSRF-Token"] = session["csrf_token"]
     return {"Cookie": "; ".join(f"{k}={v}" for k, v in client.cookies.items()), "X-CSRF-Token": session["csrf_token"]}, session

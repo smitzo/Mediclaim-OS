@@ -1,4 +1,5 @@
-import json
+from sqlalchemy import select, update
+from app.db.schema_v1 import sessions
 import time
 from app.api import routes
 from tests.test_tenant_access import login
@@ -8,7 +9,8 @@ def test_hashed_revocable_sessions_and_csrf(client):
     headers, session = login(client)
     token = client.cookies["claimops_session"]
     assert "token" not in session
-    assert token not in routes.auth_store.sessions_path.read_text()
+    with routes.auth_store.db.engine.connect() as connection:
+        assert token not in str(connection.execute(select(sessions)).all())
     assert client.get("/api/me").status_code == 200
     assert client.post("/api/auth/sign-out", headers={"X-CSRF-Token": "wrong"}).status_code == 403
     assert client.post("/api/auth/sign-out").status_code == 200
@@ -18,10 +20,8 @@ def test_hashed_revocable_sessions_and_csrf(client):
 def test_expiry_and_cross_origin_mutation(client):
     login(client)
     assert client.post("/api/auth/sign-out", headers={"Origin": "https://evil.example"}).status_code == 403
-    data = json.loads(routes.auth_store.sessions_path.read_text())
-    for value in data.values():
-        value["expires_at"] = int(time.time()) - 1
-    routes.auth_store.sessions_path.write_text(json.dumps(data))
+    with routes.auth_store.db.transaction() as connection:
+        connection.execute(update(sessions).values(expires_at=int(time.time())-1))
     assert client.get("/api/me").status_code == 401
 
 

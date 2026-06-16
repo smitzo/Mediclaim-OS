@@ -18,6 +18,7 @@ from app.core.schemas import (
     AuthRegisterRequest,
     AuthSession,
     AuthSigninRequest,
+    AuthMemberRequest,
     JobStatus,
 )
 from app.services.processor import process_claim_pdf
@@ -111,6 +112,11 @@ def require_role(*allowed: str):
 
 _upload_session = require_role("uploader", "administrator")
 _review_session = require_role("reviewer", "administrator")
+
+
+@router.post("/auth/users", tags=["Auth"])
+async def create_member(payload: AuthMemberRequest, session: AuthSession = Depends(require_role("administrator"))):
+    return auth_store.add_member(session, payload.username, payload.password, payload.role)
 
 
 @router.get("/me", response_model=AuthSession, tags=["Auth"])

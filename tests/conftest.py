@@ -20,7 +20,7 @@ from app.services.storage import ClaimStorage
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "storage", ClaimStorage(tmp_path))
-    monkeypatch.setattr(routes, "auth_store", AuthStore(tmp_path / "auth"))
+    monkeypatch.setattr(routes, "auth_store", AuthStore(tmp_path / "auth", routes.storage.db))
     monkeypatch.setattr(routes.process_claim_job, "delay", lambda *args: None)
     monkeypatch.setattr(routes, "process_claim_pdf", lambda claim_id, _: ClaimResponse(
         claim_id=claim_id, status="success", extracted_data={"identity": {"patient_name": "Synthetic Patient"}}

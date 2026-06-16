@@ -194,6 +194,12 @@ class AuthRegisterRequest(BaseModel):
     password: str
 
 
+class AuthMemberRequest(BaseModel):
+    username: str
+    password: str
+    role: Literal["uploader", "reviewer", "administrator"]
+
+
 class AuthSigninRequest(BaseModel):
     username: str
     password: str
