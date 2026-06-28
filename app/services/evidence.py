@@ -33,5 +33,7 @@ def build_evidence(data, texts, document_map, methods):
                     if match:
                         entry = entry.model_copy(update={"source_page": page+1, "source_value": match.group(), "supporting_text": text[max(0,text.rfind("\n",0,match.start())+1):text.find("\n",match.end()) if "\n" in text[match.end():] else len(text)], "span_start": match.start(), "span_end": match.end(), "verification": "text_match"})
                         break
+        if path.split(".")[-1] in data.get(section, {}).get("extra_fields", {}).get("derived_fields", []):
+            entry = entry.model_copy(update={"method": "derived", "verification": "derived", "source_page": None, "source_value": None, "supporting_text": None, "span_start": None, "span_end": None})
         evidence[path] = entry
     return evidence

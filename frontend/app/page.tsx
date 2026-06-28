@@ -877,8 +877,8 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
         <h3 className="text-sm font-semibold text-zinc-950">Billing</h3>
         <dl className="mt-3 space-y-2 text-sm">
           <SummaryRow label="Bill no." value={getString(bill.bill_number)} />
-          <SummaryRow label="Total" value={formatCurrency(bill.total_amount)} />
-          <SummaryRow label="Patient due" value={formatCurrency(bill.patient_responsibility)} />
+          <SummaryRow label="Total" value={formatCurrency(bill.total_amount, bill.currency)} />
+          <SummaryRow label="Patient due" value={formatCurrency(bill.patient_responsibility, bill.currency)} />
           <SummaryRow label="Line items" value={String(lineItems.length)} />
         </dl>
       </div>
@@ -933,15 +933,11 @@ function getString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function formatCurrency(value: unknown): string {
-  if (typeof value !== "number") {
-    return "";
-  }
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0
-  }).format(value);
+function formatCurrency(value: unknown, currency: unknown): string {
+  if (value === null || value === undefined || value === "") return "Unavailable";
+  const amount = String(value);
+  if (!/^-?\d+(\.\d+)?$/.test(amount)) return "Invalid amount";
+  return `${amount} ${typeof currency === "string" && /^[A-Z]{3}$/.test(currency) ? currency : "(currency unknown)"}`;
 }
 
 function formatBytes(bytes: number) {

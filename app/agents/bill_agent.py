@@ -138,6 +138,7 @@ def _ensure_page_images(state: ClaimState, pages: list[int]) -> None:
 
 def _merge_bill_payloads(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     scalar_fields = [
+        "currency",
         "bill_number",
         "bill_date",
         "hospital_name",
@@ -163,6 +164,7 @@ def _merge_bill_payloads(base: dict[str, Any], incoming: dict[str, Any]) -> dict
         computed_total = sum(item.amount for item in _coerce_line_items(base["line_items"]))
         if computed_total:
             base["total_amount"] = computed_total
+            base["extra_fields"]["derived_fields"] = ["total_amount"]
 
     return base
 

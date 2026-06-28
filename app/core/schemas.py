@@ -6,6 +6,8 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, Field
+from decimal import Decimal
+from app.core.money import Money
 
 
 # ---------------------------------------------------------------------------
@@ -97,23 +99,24 @@ class DischargeSummaryData(BaseModel):
 class BillLineItem(BaseModel):
     date: Optional[str] = None
     description: str
-    quantity: Optional[float] = None
-    unit_price: Optional[float] = None
-    amount: float
+    quantity: Optional[Decimal] = Field(default=None, allow_inf_nan=False, ge=0)
+    unit_price: Optional[Money] = None
+    amount: Money
 
 
 class ItemizedBillData(BaseModel):
+    currency: Optional[str] = Field(default=None, pattern=r"^[A-Z]{3}$")
     bill_number: Optional[str] = None
     bill_date: Optional[str] = None
     hospital_name: Optional[str] = None
     patient_name: Optional[str] = None
     line_items: list[BillLineItem] = Field(default_factory=list)
-    subtotal: Optional[float] = None
-    tax: Optional[float] = None
-    discount: Optional[float] = None
-    insurance_payment: Optional[float] = None
-    total_amount: Optional[float] = None
-    patient_responsibility: Optional[float] = None
+    subtotal: Optional[Money] = None
+    tax: Optional[Money] = None
+    discount: Optional[Money] = None
+    insurance_payment: Optional[Money] = None
+    total_amount: Optional[Money] = None
+    patient_responsibility: Optional[Money] = None
     payment_method: Optional[str] = None
     extra_fields: dict[str, Any] = Field(default_factory=dict)
 

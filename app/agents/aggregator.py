@@ -54,13 +54,13 @@ def aggregator(state: ClaimState) -> dict[str, Any]:
     extracted_data: dict[str, Any] = {}
 
     if state.identity_data:
-        extracted_data["identity"] = state.identity_data.model_dump(exclude_none=False)
+        extracted_data["identity"] = state.identity_data.model_dump(exclude_none=False, mode="json")
 
     if state.discharge_data:
-        extracted_data["discharge_summary"] = state.discharge_data.model_dump(exclude_none=False)
+        extracted_data["discharge_summary"] = state.discharge_data.model_dump(exclude_none=False, mode="json")
 
     if state.bill_data:
-        bill_dict = state.bill_data.model_dump(exclude_none=False)
+        bill_dict = state.bill_data.model_dump(exclude_none=False, mode="json")
         # Serialize BillLineItem objects that may remain as models
         bill_dict["line_items"] = [
             item if isinstance(item, dict) else item.model_dump()

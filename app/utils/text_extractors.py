@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
+from app.core.money import money
 from typing import Any
 
 from app.core.schemas import BillLineItem, DischargeSummaryData, IdentityData, ItemizedBillData
@@ -119,10 +121,11 @@ def has_discharge_signal(data: DischargeSummaryData) -> bool:
 def extract_bill_data_from_text(text: str) -> ItemizedBillData:
     compact = _compact(text)
     line_items = _extract_bill_line_items(text)
-    total_amount = _search_number(compact, [r"(?:total amount|grand total|amount paid|total)[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"])
-    subtotal = _search_number(compact, [r"subtotal[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"])
-    tax = _search_number(compact, [r"tax[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"])
+    total_amount = _search_number(compact, [r"(?:total amount|grand total|amount paid|total)[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"])
+    subtotal = _search_number(compact, [r"subtotal[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"])
+    tax = _search_number(compact, [r"tax[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"])
     return ItemizedBillData(
+        currency=_search(compact, [r"\b(INR|USD|EUR|GBP|JPY|AED)\b"]),
         bill_number=_search(compact, [r"(?:bill number|invoice number|receipt number|bill no)[:\s]+([A-Za-z0-9\-\/]{3,})"]),
         bill_date=_search(compact, [r"(?:bill date|invoice date|receipt date|date)[:\s]+([A-Za-z0-9,/\- ]{4,})"]),
         hospital_name=_search(compact, [r"(?:hospital name|hospital|medical center|clinic)[:\s]+([A-Za-z0-9 &.\-]{3,})"]),
@@ -130,12 +133,12 @@ def extract_bill_data_from_text(text: str) -> ItemizedBillData:
         line_items=line_items,
         subtotal=subtotal,
         tax=tax,
-        discount=_search_number(compact, [r"discount[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"]),
-        insurance_payment=_search_number(compact, [r"(?:insurance payment|insurance paid|covered amount)[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"]),
+        discount=_search_number(compact, [r"discount[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"]),
+        insurance_payment=_search_number(compact, [r"(?:insurance payment|insurance paid|covered amount)[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"]),
         total_amount=total_amount if total_amount is not None else _sum_line_items(line_items),
-        patient_responsibility=_search_number(compact, [r"(?:patient responsibility|amount due|patient payable)[:\s$]*([0-9]+(?:\.[0-9]{1,2})?)"]),
+        patient_responsibility=_search_number(compact, [r"(?:patient responsibility|amount due|patient payable)[:\s$]*((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)"]),
         payment_method=_search(compact, [r"(?:payment method|paid by|mode of payment)[:\s]+([A-Za-z ]{3,})"]),
-        extra_fields={},
+        extra_fields={"derived_fields": ["total_amount"]} if total_amount is None and line_items else {},
     )
 
 
@@ -146,7 +149,7 @@ def has_bill_signal(data: ItemizedBillData) -> bool:
 def _extract_bill_line_items(text: str) -> list[BillLineItem]:
     lines = _lines(text)
     items: list[BillLineItem] = []
-    money_re = re.compile(r"([0-9]+(?:\.[0-9]{1,2})?)$")
+    money_re = re.compile(r"((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)$")
     date_re = re.compile(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})")
 
     for raw_line in lines:
@@ -158,7 +161,7 @@ def _extract_bill_line_items(text: str) -> list[BillLineItem]:
             continue
         if any(token in line.lower() for token in ["total", "subtotal", "tax", "discount", "amount due"]):
             continue
-        amount = float(money_match.group(1))
+        amount = money(money_match.group(1).replace(",", ""))
         prefix = line[:money_match.start()].strip(" -:")
         date = None
         date_match = date_re.search(prefix)
@@ -208,11 +211,10 @@ def _extract_list_items(text: str, labels: list[str]) -> list[str]:
     return results[:10]
 
 
-def _sum_line_items(line_items: list[BillLineItem]) -> float | None:
+def _sum_line_items(line_items: list[BillLineItem]) -> Decimal | None:
     if not line_items:
         return None
-    total = sum(item.amount for item in line_items)
-    return round(total, 2)
+    return money(sum((item.amount for item in line_items), Decimal("0")))
 
 
 def _search(text: str, patterns: list[str]) -> str | None:
@@ -225,13 +227,13 @@ def _search(text: str, patterns: list[str]) -> str | None:
     return None
 
 
-def _search_number(text: str, patterns: list[str]) -> float | None:
+def _search_number(text: str, patterns: list[str]) -> Decimal | None:
     value = _search(text, patterns)
     if value is None:
         return None
     try:
-        return float(value)
-    except ValueError:
+        return money(value.replace(",", ""))
+    except (ValueError, InvalidOperation):
         return None
 
 
