@@ -175,6 +175,7 @@ class ClaimJob(BaseModel):
     page_count: int = 0
     file_size_bytes: int = 0
     retry_count: int = 0
+    processing_generation: int = 0
     error: Optional[str] = None
     result_url: Optional[str] = None
 

@@ -111,9 +111,11 @@ class ClaimStorage:
             job = ClaimJob(**row["data"])
             if job.status not in {"failed", "partial"}:
                 raise HTTPException(status_code=409, detail="Only failed or partial jobs can be retried.")
+            job.processing_generation += 1
             job.status, job.error, job.retry_count, job.updated_at = "queued", None, job.retry_count+1, utc_now()
             changed = connection.execute(update(jobs).where(jobs.c.id == job_id, jobs.c.version == row["version"]).values(status="queued", data=job.model_dump(), version=row["version"]+1))
             if changed.rowcount != 1: raise HTTPException(status_code=409, detail="Job changed; reload and retry.")
+            connection.execute(insert(outbox).values(id=uuid.uuid4().hex, job_id=job_id, tenant_id=job.tenant_id, published=False, available_at=time.time(), attempts=0))
             return job
 
     def save_result(self, job_id, response):

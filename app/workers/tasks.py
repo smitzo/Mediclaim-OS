@@ -1,5 +1,6 @@
 """Background execution with atomic leases and fenced result writes."""
 import logging
+import httpx
 from app.services.processor import process_claim_pdf
 from app.services.storage import storage
 from app.services.attempts import AttemptService
@@ -19,7 +20,7 @@ def process_claim_job(self, job_id: str):
             response = process_claim_pdf(job.claim_id, storage.read_pdf(job_id, attempt["tenant_id"]))
             committed = service.complete(attempt["fence"], response)
         return {"job_id": job_id, "status": "completed" if committed else "stale"}
-    except Exception:
-        service.fail(attempt["fence"])
+    except Exception as exc:
+        service.fail(attempt["fence"], retryable=isinstance(exc, (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.NetworkError)))
         logger.error("Claim attempt failed", extra={"job_id": job_id})
         return {"job_id": job_id, "status": "failed"}

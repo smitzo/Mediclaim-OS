@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/1"
     worker_concurrency: int = 2
     worker_lease_seconds: int = 120
+    processing_max_attempts: int = 3
+    processing_deadline_seconds: int = 3600
+    retry_base_seconds: int = 2
     task_time_limit_seconds: int = 60 * 60
 
     @model_validator(mode="after")

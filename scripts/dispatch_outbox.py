@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.storage import storage
+from app.services.attempts import AttemptService
 from app.workers.tasks import process_claim_job
 
 
@@ -21,7 +22,9 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while running:
-        try: storage.dispatch_outbox(process_claim_job.delay)
+        try:
+            AttemptService(storage).reconcile()
+            storage.dispatch_outbox(process_claim_job.delay)
         except Exception: logging.error("Outbox dispatch failed; will retry.")
         if args.once: break
         time.sleep(2)
