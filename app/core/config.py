@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     processing_max_attempts: int = 3
     processing_deadline_seconds: int = 3600
     retry_base_seconds: int = 2
+    provider_max_calls: int = 12
+    provider_max_output_tokens: int = 16000
     task_time_limit_seconds: int = 60 * 60
 
     @model_validator(mode="after")

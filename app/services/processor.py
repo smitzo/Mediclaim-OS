@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from app.core.graph import claim_graph
+from app.services.provider_budget import budget_scope
 from app.core.schemas import ClaimResponse, ClaimState
 
 logger = logging.getLogger(__name__)
@@ -14,11 +15,15 @@ logger = logging.getLogger(__name__)
 def process_claim_pdf(claim_id: str, pdf_bytes: bytes) -> ClaimResponse:
     """Run the LangGraph pipeline and return a stable API response."""
     initial_state = ClaimState(claim_id=claim_id, pdf_bytes=pdf_bytes)
-    final_state = claim_graph.invoke(initial_state)
+    with budget_scope() as budget:
+        final_state = claim_graph.invoke(initial_state)
     state_dict = _state_to_dict(final_state)
 
     response: ClaimResponse | None = state_dict.get("final_response") or state_dict.get("_response")
     if response is not None:
+        response.processing_summary["provider_usage"] = budget.snapshot()
+        if budget.exhausted:
+            response.processing_summary["quality"]["requires_review"] = True
         return response
 
     errors = state_dict.get("errors", [])
