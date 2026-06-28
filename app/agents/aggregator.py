@@ -18,6 +18,7 @@ from typing import Any
 from app.core.schemas import ClaimState, ClaimResponse
 from app.services.evidence import build_evidence
 from app.services.quality import quality_summary
+from app.services.validation import validate_claim
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ def aggregator(state: ClaimState) -> dict[str, Any]:
         errors=unique_errors,
         processing_summary=processing_summary,
         field_evidence=evidence,
+        validation_findings=validate_claim(extracted_data, evidence),
     )
 
     logger.info(

@@ -155,9 +155,7 @@ def _merge_bill_payloads(base: dict[str, Any], incoming: dict[str, Any]) -> dict
         if base.get(field) is None and incoming.get(field) is not None:
             base[field] = incoming[field]
 
-    base["line_items"] = _dedupe_line_items(
-        [*(base.get("line_items") or []), *(incoming.get("line_items") or [])]
-    )
+    base["line_items"] = [*(base.get("line_items") or []), *(incoming.get("line_items") or [])]
     base["extra_fields"] = {**(base.get("extra_fields") or {}), **(incoming.get("extra_fields") or {})}
 
     if base.get("total_amount") is None:
@@ -187,15 +185,3 @@ def _coerce_line_items(raw_items: list[Any]) -> list[BillLineItem]:
         except Exception as exc:
             logger.warning("[Bill Agent] Skipping malformed line item %s: %s", item, exc)
     return line_items
-
-
-def _dedupe_line_items(raw_items: list[Any]) -> list[dict[str, Any]]:
-    seen: set[tuple[tuple[str, Any], ...]] = set()
-    deduped: list[dict[str, Any]] = []
-    for item in raw_items:
-        payload = item if isinstance(item, dict) else item.model_dump()
-        key = tuple(sorted(payload.items()))
-        if key not in seen:
-            seen.add(key)
-            deduped.append(payload)
-    return deduped

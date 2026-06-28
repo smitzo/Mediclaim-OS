@@ -174,6 +174,15 @@ class FieldEvidence(BaseModel):
     confidence: float | None = None
 
 
+class ValidationFinding(BaseModel):
+    id: str
+    code: str
+    severity: Literal["error", "warning", "info"] = "error"
+    fields: list[str]
+    evidence: list[str] = Field(default_factory=list)
+    message: str
+
+
 class ClaimResponse(BaseModel):
     claim_id: str
     status: str
@@ -182,6 +191,8 @@ class ClaimResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
     processing_summary: dict[str, Any] = Field(default_factory=dict)
     schema_version: str = "2.0"
+    validation_version: str = "1.0"
+    validation_findings: list[ValidationFinding] = Field(default_factory=list)
     field_evidence: dict[str, FieldEvidence] = Field(default_factory=dict)
 
 
