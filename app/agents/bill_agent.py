@@ -1,6 +1,7 @@
 """Itemized bill extraction node."""
 
 from __future__ import annotations
+from app.services.quality import complete
 
 import logging
 from typing import Any
@@ -68,9 +69,9 @@ def bill_agent(state: ClaimState) -> dict:
         return {"bill_data": None}
 
     local_bill = extract_bill_data_from_text(_build_text_context(state, assigned_pages))
-    if has_bill_signal(local_bill):
+    if complete("itemized_bill", local_bill):
         logger.info("[Bill Agent] Returning deterministic text extraction result")
-        return {"bill_data": local_bill}
+        return {"bill_data": local_bill, "extraction_methods": {"itemized_bill": "text"}}
 
     try:
         merged = _extract_billing_chunks(state, assigned_pages)
@@ -80,12 +81,12 @@ def bill_agent(state: ClaimState) -> dict:
             bill_data.total_amount or "N/A",
             len(bill_data.line_items),
         )
-        return {"bill_data": bill_data}
+        return {"bill_data": bill_data, "extraction_methods": {"itemized_bill": "model"}}
     except Exception as exc:
         logger.exception("[Bill Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
         errors.append(f"Bill Agent error: {exc}")
-        return {"bill_data": ItemizedBillData(), "errors": errors}
+        return {"bill_data": local_bill, "extraction_methods": {"itemized_bill": "text"}, "errors": errors}
 
 
 def _extract_billing_chunks(state: ClaimState, assigned_pages: list[int]) -> dict[str, Any]:

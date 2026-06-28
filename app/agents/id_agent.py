@@ -1,6 +1,7 @@
 """Identity extraction node."""
 
 from __future__ import annotations
+from app.services.quality import complete
 
 import logging
 
@@ -66,9 +67,9 @@ def id_agent(state: ClaimState) -> dict:
     )
     text_context = _build_text_context(state, assigned_pages)
     local_identity = extract_identity_data_from_text(text_context)
-    if has_identity_signal(local_identity):
+    if complete("identity", local_identity):
         logger.info("[ID Agent] Returning deterministic text extraction result")
-        return {"identity_data": local_identity}
+        return {"identity_data": local_identity, "extraction_methods": {"identity": "text"}}
 
     try:
         if _should_use_text_only(state, assigned_pages):
@@ -91,10 +92,10 @@ def id_agent(state: ClaimState) -> dict:
             if k in IdentityData.model_fields or k == "extra_fields"
         })
         logger.info("[ID Agent] Extraction complete | patient=%s", identity_data.patient_name or "N/A")
-        return {"identity_data": identity_data}
+        return {"identity_data": identity_data, "extraction_methods": {"identity": "model"}}
     except Exception as exc:
         logger.exception("[ID Agent] Extraction failed")
-        fallback_data = extract_identity_data_from_text(f"{text_context}\n\n{exc}")
+        fallback_data = extract_identity_data_from_text(text_context)
         if has_identity_signal(fallback_data):
             logger.info("[ID Agent] Recovered identity data from local text fallback")
             return {"identity_data": fallback_data}

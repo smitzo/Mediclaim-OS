@@ -1,6 +1,7 @@
 """Discharge summary extraction node."""
 
 from __future__ import annotations
+from app.services.quality import complete
 
 import logging
 from typing import Any
@@ -70,9 +71,9 @@ def discharge_agent(state: ClaimState) -> dict:
     summary_pages = sorted(doc_map.get("discharge_summary", []))
     prescription_pages = sorted(doc_map.get("prescription", []))
     local_discharge = extract_discharge_data_from_text(_build_text_context(state, assigned_pages))
-    if has_discharge_signal(local_discharge):
+    if complete("discharge_summary", local_discharge):
         logger.info("[Discharge Agent] Returning deterministic text extraction result")
-        return {"discharge_data": local_discharge}
+        return {"discharge_data": local_discharge, "extraction_methods": {"discharge_summary": "text"}}
 
     try:
         result = _extract_and_merge(state, summary_pages, prescription_pages)
@@ -82,12 +83,12 @@ def discharge_agent(state: ClaimState) -> dict:
             discharge_data.final_diagnosis or "N/A",
             len(discharge_data.prescriptions),
         )
-        return {"discharge_data": discharge_data}
+        return {"discharge_data": discharge_data, "extraction_methods": {"discharge_summary": "model"}}
     except Exception as exc:
         logger.exception("[Discharge Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
         errors.append(f"Discharge Agent error: {exc}")
-        return {"discharge_data": DischargeSummaryData(), "errors": errors}
+        return {"discharge_data": local_discharge, "extraction_methods": {"discharge_summary": "text"}, "errors": errors}
 
 
 def _extract_and_merge(

@@ -122,6 +122,10 @@ class ItemizedBillData(BaseModel):
 # Pipeline graph state
 # ---------------------------------------------------------------------------
 
+def merge_methods(left: dict, right: dict) -> dict:
+    return {**left, **right}
+
+
 class ClaimState(BaseModel):
     """Shared state passed between LangGraph nodes."""
     claim_id: str
@@ -140,6 +144,7 @@ class ClaimState(BaseModel):
     discharge_data: Optional[DischargeSummaryData] = None
     bill_data: Optional[ItemizedBillData] = None
     final_response: Optional["ClaimResponse"] = None
+    extraction_methods: Annotated[dict[str, str], merge_methods] = Field(default_factory=dict)
 
     # Errors collected during processing
     errors: Annotated[list[str], operator.add] = Field(default_factory=list)
@@ -152,6 +157,20 @@ class ClaimState(BaseModel):
 # API response
 # ---------------------------------------------------------------------------
 
+class FieldEvidence(BaseModel):
+    evidence_version: str = "1.0"
+    field: str
+    source_page: int | None = None
+    source_value: Any = None
+    normalized_value: Any = None
+    supporting_text: str | None = None
+    span_start: int | None = None
+    span_end: int | None = None
+    method: Literal["text", "model", "derived", "unknown"] = "unknown"
+    verification: Literal["text_match", "missing_evidence", "missing_value", "derived"]
+    confidence: float | None = None
+
+
 class ClaimResponse(BaseModel):
     claim_id: str
     status: str
@@ -159,6 +178,8 @@ class ClaimResponse(BaseModel):
     extracted_data: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
     processing_summary: dict[str, Any] = Field(default_factory=dict)
+    schema_version: str = "2.0"
+    field_evidence: dict[str, FieldEvidence] = Field(default_factory=dict)
 
 
 JobStatus = Literal["queued", "processing", "succeeded", "partial", "failed"]
