@@ -6,8 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "next build"
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

@@ -1,10 +1,12 @@
 .git
 .env
+.env.*
 .venv
-env
 __pycache__
+.pytest_cache
 *.pyc
 data
-node_modules
-.next
-npm-debug.log
+frontend/node_modules
+frontend/.next
+frontend/.env.local
+artifacts

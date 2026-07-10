@@ -1,0 +1,53 @@
+name: Quality gates
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: claims
+          POSTGRES_PASSWORD: synthetic-ci-password
+          POSTGRES_DB: claims_test
+        ports: ["5432:5432"]
+        options: --health-cmd="pg_isready -U claims" --health-interval=5s --health-timeout=3s --health-retries=15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip}
+      - run: pip install --require-hashes -r requirements-dev.lock
+      - run: python -m compileall -q app scripts main.py
+      - run: pytest -q
+      - run: python scripts/evaluate_quality.py
+      - run: alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+psycopg://claims:synthetic-ci-password@localhost:5432/claims_test
+      - run: pytest -q tests/test_postgres.py
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://claims:synthetic-ci-password@localhost:5432/claims_test
+      - run: python scripts/check_secrets.py
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm audit --audit-level=high
+        working-directory: frontend
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install pip-audit==2.9.0
+      - run: pip-audit -r requirements.lock --disable-pip
