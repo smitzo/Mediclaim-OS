@@ -1,0 +1,39 @@
+{
+  "dataset_version": "synthetic-english-v1",
+  "profile": "synthetic_english_text_v1",
+  "description": "Synthetic component fixtures; scanned documents remain review-only until OCR/provider evaluation is configured.",
+  "cases": [
+    {
+      "id": "complete-text",
+      "documents": [
+        {"type": "identity_document", "text": "IDENTITY DOCUMENT\nPatient Name: Synthetic Patient\nPolicy Number: TEST-001\nDate of Birth: 1990-01-01\nGender: Test"},
+        {"type": "discharge_summary", "text": "DISCHARGE SUMMARY\nAdmission Date: 2026-10-01\nDischarge Date: 2026-10-03\nFinal Diagnosis: Synthetic condition\nHospital Name: Example Hospital\nAttending Physician: Example Doctor"},
+        {"type": "itemized_bill", "text": "ITEMIZED BILL\nBill Number: BILL-001\nPatient Name: Synthetic Patient\nCurrency: INR\nConsultation 0.10\nTest service 0.20\nSubtotal: 0.30\nTotal Amount: 0.30"}
+      ],
+      "expected_fields": {"identity.patient_name": "Synthetic Patient", "identity.policy_number": "TEST-001", "discharge_summary.admission_date": "2026-10-01", "discharge_summary.discharge_date": "2026-10-03", "itemized_bill.total_amount": "0.30", "itemized_bill.currency": "INR"},
+      "expected_findings": []
+    },
+    {
+      "id": "contradictions",
+      "documents": [
+        {"type": "identity_document", "text": "IDENTITY DOCUMENT\nPatient Name: Synthetic Alpha\nPolicy Number: TEST-002\nDate of Birth: 1990-01-01\nGender: Test"},
+        {"type": "discharge_summary", "text": "DISCHARGE SUMMARY\nAdmission Date: 01/02/2026\nDischarge Date: 2026-01-03\nFinal Diagnosis: Synthetic condition\nHospital Name: Example Hospital"},
+        {"type": "itemized_bill", "text": "ITEMIZED BILL\nBill Number: BILL-002\nPatient Name: Synthetic Beta\nCurrency: INR\nConsultation 0.10\nConsultation 0.10\nTotal Amount: 1.00"}
+      ],
+      "expected_fields": {"identity.patient_name": "Synthetic Alpha", "itemized_bill.patient_name": "Synthetic Beta", "itemized_bill.total_amount": "1.00"},
+      "expected_findings": ["patient_mismatch", "ambiguous_date", "duplicate_charge", "total_mismatch"]
+    },
+    {
+      "id": "missing-pages",
+      "documents": [{"type": "identity_document", "text": "IDENTITY DOCUMENT\nPatient Name: Synthetic Missing\nDate of Birth: 1990-01-01\nGender: Test\nAddress: Example Test Address"}],
+      "expected_fields": {"identity.patient_name": "Synthetic Missing"},
+      "expected_findings": ["required_field_missing"]
+    },
+    {
+      "id": "scan-review-only",
+      "documents": [{"type": "other", "text": ""}],
+      "expected_fields": {},
+      "expected_findings": ["required_field_missing"]
+    }
+  ]
+}

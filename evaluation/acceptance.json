@@ -1,0 +1,6 @@
+{
+  "profile": "synthetic_english_text_v1",
+  "component_regression": {"field_precision": 1.0, "field_recall": 1.0, "monetary_exactness": 1.0, "evidence_span_correctness": 1.0, "expected_finding_recall": 1.0},
+  "production": {"field_precision": null, "field_recall": null, "classification_accuracy": null, "evidence_correctness": null, "p95_latency_seconds": null, "claims_per_minute": null, "max_memory_mb": null, "max_cost_per_claim": null, "max_recovery_seconds": null},
+  "required_staging_evidence": ["postgres_object_store_integration", "worker_termination", "broker_outage", "supported_load", "backup_restore", "retention_deletion", "live_provider_evaluation"]
+}
