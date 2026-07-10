@@ -1,5 +1,6 @@
 "use client";
 
+import { ClaimReviewPanel } from "@/components/claim-review";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
@@ -280,29 +281,6 @@ export default function Home() {
     anchor.download = `${selectedJob.claim_id}-result.json`;
     anchor.click();
     window.URL.revokeObjectURL(url);
-  }
-
-  async function saveReview() {
-    if (!review || !selectedJob || isDemoJob(selectedJob.job_id)) {
-      return;
-    }
-    setReviewSaving(true);
-    setError(null);
-    try {
-      setReview(await saveClaimReview(
-        selectedJob.job_id,
-        {
-          status: review.status,
-          reviewer: review.reviewer || session?.username,
-          notes: review.notes,
-          corrected_data: review.corrected_data
-        }
-      ));
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Unable to save review");
-    } finally {
-      setReviewSaving(false);
-    }
   }
 
   useEffect(() => {
@@ -644,45 +622,8 @@ export default function Home() {
           </div>
 
           {result && resultView === "summary" ? <ResultSummary result={result} /> : null}
-          {result && review ? (
-            <div className="mt-5 rounded-lg border border-zinc-200 p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div className="grid flex-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-                  <label className="block text-sm font-medium text-zinc-700">
-                    Review status
-                    <select
-                      value={review.status}
-                      onChange={(event) => setReview((current) => current ? { ...current, status: event.target.value as ReviewStatus } : current)}
-                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    >
-                      {reviewStatuses.map((status) => (
-                        <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block text-sm font-medium text-zinc-700">
-                    Reviewer notes
-                    <input
-                      value={review.notes}
-                      onChange={(event) => setReview((current) => current ? { ...current, notes: event.target.value } : current)}
-                      className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                      placeholder="Add correction notes or approval context"
-                    />
-                  </label>
-                </div>
-                <button
-                  onClick={saveReview}
-                  disabled={reviewSaving || session.role === "uploader" || !selectedJob || isDemoJob(selectedJob.job_id)}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                >
-                  {reviewSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save review
-                </button>
-              </div>
-              {isDemoJob(selectedJob?.job_id ?? "") ? (
-                <p className="mt-3 text-xs text-zinc-500">Demo review changes are local to this screen. Live processed claims save through the review API.</p>
-              ) : null}
-            </div>
+          {result && review && selectedJob && !isDemoJob(selectedJob.job_id) ? (
+            <ClaimReviewPanel key={`${selectedJob.job_id}-${review.result_version}`} jobId={selectedJob.job_id} result={result} review={review} canReview={session.role !== "uploader"} onSaved={setReview} />
           ) : null}
 
           {!result && !selectedJob?.error ? (
@@ -833,6 +774,9 @@ function MetricCard({ label, value, icon }: { label: string; value: number; icon
 
 function emptyReview(job: ClaimJob, reviewer?: string): ClaimReview {
   return {
+    version: 0,
+    result_version: 1,
+    acknowledged_findings: [],
     job_id: job.job_id,
     tenant_id: job.tenant_id,
     status: "needs_review",

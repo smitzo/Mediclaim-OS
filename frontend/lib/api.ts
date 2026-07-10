@@ -17,7 +17,13 @@ export type ClaimJob = {
   result_url?: string | null;
 };
 
+export type FieldEvidence = { source_page?: number | null; supporting_text?: string | null; verification: string; method: string; confidence: number | null };
+export type ValidationFinding = { id: string; code: string; severity: string; fields: string[]; message: string };
+
 export type ClaimResponse = {
+  schema_version?: string;
+  field_evidence?: Record<string, FieldEvidence>;
+  validation_findings?: ValidationFinding[];
   claim_id: string;
   status: string;
   page_classification: Array<Record<string, unknown>>;
@@ -29,6 +35,10 @@ export type ClaimResponse = {
 export type ReviewStatus = "needs_review" | "approved" | "rejected" | "corrected";
 
 export type ClaimReview = {
+  version: number;
+  result_version: number;
+  acknowledged_findings: string[];
+  validation_findings?: ValidationFinding[];
   job_id: string;
   tenant_id: string;
   status: ReviewStatus;
@@ -74,7 +84,7 @@ export async function getClaimReview(jobId: string): Promise<ClaimReview> {
 
 export async function saveClaimReview(
   jobId: string,
-  review: Pick<ClaimReview, "status" | "reviewer" | "notes" | "corrected_data">,
+  review: Pick<ClaimReview, "status" | "notes" | "corrected_data" | "result_version" | "acknowledged_findings"> & { expected_version: number },
 ): Promise<ClaimReview> {
   const response = await apiFetch(`/api/claims/${jobId}/review`, {
     method: "PUT",
@@ -107,5 +117,9 @@ async function parseResponse<T>(response: Response): Promise<T> {
   } catch {
     // Keep the status-based message when the server does not return JSON.
   }
-  throw new Error(message);
+  throw new ApiError(message, response.status);
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) { super(message); }
 }
