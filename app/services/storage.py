@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 from app.db.database import Database
 from app.services.documents import document_store, object_key
-from app.db.schema_v1 import jobs, results, reviews, tenants, outbox, idempotency
+from app.db.schema_v1 import jobs, results, reviews, tenants, outbox, idempotency, audits
 
 
 def utc_now() -> str:
@@ -135,17 +135,34 @@ class ClaimStorage:
         with self.db.engine.connect() as connection:
             job = self._job(connection, job_id, tenant_id)
             row = connection.execute(select(reviews.c.data).where(reviews.c.job_id == job_id, reviews.c.tenant_id == job["tenant_id"])).first()
-            return ClaimReview(**row[0]) if row else ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], updated_at=utc_now())
+            latest = connection.execute(select(func.max(results.c.version)).where(results.c.job_id == job_id)).scalar() or 0
+            return ClaimReview(**row[0]) if row else ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], result_version=latest, updated_at=utc_now())
 
     def save_review(self, job_id, tenant_id, payload):
+        from app.services.review import corrected_result, approval_allowed
+        from app.services.validation import validate_claim
         with self.db.transaction() as connection:
             job = self._job(connection, job_id, tenant_id)
-            review = ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], updated_at=utc_now(), **payload.model_dump())
-            previous = connection.execute(select(reviews.c.version).where(reviews.c.job_id == job_id)).scalar()
+            previous = connection.execute(select(reviews).where(reviews.c.job_id == job_id).with_for_update()).mappings().first()
+            version = previous["version"] if previous else 0
+            if payload.expected_version != version:
+                raise HTTPException(status_code=409, detail="Review changed. Reload before saving your changes.")
+            result = connection.execute(select(results).where(results.c.job_id == job_id).order_by(results.c.version.desc()).limit(1)).mappings().first()
+            if not result or result["version"] != payload.result_version:
+                raise HTTPException(status_code=409, detail="Extraction result changed or is unavailable. Reload before reviewing.")
+            original = ClaimResponse(**result["data"])
+            corrected = corrected_result(original.extracted_data, payload.corrected_data)
+            findings = validate_claim(corrected, original.field_evidence)
+            if payload.status == "approved": approval_allowed(findings, payload.acknowledged_findings, payload.notes)
+            if payload.status == "corrected" and not payload.corrected_data:
+                raise HTTPException(status_code=422, detail="Corrected status requires field corrections.")
+            review = ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], version=version+1, result_version=result["version"], status=payload.status, reviewer=payload.reviewer, notes=payload.notes, corrected_data=payload.corrected_data, acknowledged_findings=payload.acknowledged_findings, validation_findings=findings, updated_at=utc_now())
             if previous is None:
-                connection.execute(insert(reviews).values(job_id=job_id, tenant_id=job["tenant_id"], version=1, data=review.model_dump()))
+                connection.execute(insert(reviews).values(job_id=job_id, tenant_id=job["tenant_id"], version=version+1, data=review.model_dump(mode="json")))
             else:
-                connection.execute(update(reviews).where(reviews.c.job_id == job_id).values(version=previous+1, data=review.model_dump()))
+                changed = connection.execute(update(reviews).where(reviews.c.job_id == job_id, reviews.c.version == version).values(version=version+1, data=review.model_dump(mode="json")))
+                if changed.rowcount != 1: raise HTTPException(status_code=409, detail="Review changed. Reload before saving.")
+            connection.execute(insert(audits).values(id=uuid.uuid4().hex, tenant_id=job["tenant_id"], job_id=job_id, created_at=utc_now(), data={"action": "review_saved", "actor": payload.reviewer, "review_version": version+1, "result_version": result["version"], "before": previous["data"] if previous else None, "after": review.model_dump(mode="json")}))
             return review
 
     def read_pdf(self, job_id, tenant_id=None):

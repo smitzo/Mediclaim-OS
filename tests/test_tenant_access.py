@@ -33,4 +33,4 @@ def test_tenant_header_cannot_switch_principal(client, pdf_bytes):
     assert client.get("/api/claims", headers={**headers, "X-Tenant-ID": other["tenant_id"]}).status_code == 403
     assert client.get(f"/api/claims/{job.job_id}", headers=headers).status_code == 200
     assert client.post(f"/api/claims/{job.job_id}/retry", headers=other_headers).status_code == 404
-    assert client.put(f"/api/claims/{job.job_id}/review", headers=other_headers, json={"status": "approved"}).status_code == 404
+    assert client.put(f"/api/claims/{job.job_id}/review", headers=other_headers, json={"status": "approved", "expected_version": 0, "result_version": 1}).status_code == 404

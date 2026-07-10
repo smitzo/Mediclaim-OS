@@ -3,6 +3,7 @@ from app.db.schema_v1 import memberships
 import pytest
 from app.api import routes
 from tests.test_tenant_access import login
+from app.core.schemas import ClaimResponse
 
 
 def set_role(client, role):
@@ -20,7 +21,8 @@ def test_roles_and_server_attribution(client, pdf_bytes, role, upload, review):
     response = client.post("/api/claims", headers=headers, data={"claim_id": "role-test"}, files={"file": ("fixture.pdf", pdf_bytes)})
     assert response.status_code == upload
     job = routes.storage.create_job("review", "fixture.pdf", pdf_bytes, 1, session["tenant_id"])
-    response = client.put(f"/api/claims/{job.job_id}/review", headers=headers, json={"status": "approved", "reviewer": "forged"})
+    routes.storage.save_result(job.job_id, ClaimResponse(claim_id="review", status="success"))
+    response = client.put(f"/api/claims/{job.job_id}/review", headers=headers, json={"status": "needs_review", "reviewer": "forged", "expected_version": 0, "result_version": 1})
     assert response.status_code == review
     if review == 200:
         assert response.json()["reviewer"] == "alpha"

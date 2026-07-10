@@ -253,6 +253,10 @@ class AuthSession(BaseModel):
 
 
 class ClaimReview(BaseModel):
+    version: int = 0
+    result_version: int = 0
+    acknowledged_findings: list[str] = Field(default_factory=list)
+    validation_findings: list[ValidationFinding] = Field(default_factory=list)
     job_id: str
     tenant_id: str
     status: Literal["needs_review", "approved", "rejected", "corrected"] = "needs_review"
@@ -263,6 +267,9 @@ class ClaimReview(BaseModel):
 
 
 class ClaimReviewUpdate(BaseModel):
+    expected_version: int = Field(ge=0)
+    result_version: int = Field(ge=1)
+    acknowledged_findings: list[str] = Field(default_factory=list)
     status: Literal["needs_review", "approved", "rejected", "corrected"] = "needs_review"
     reviewer: Optional[str] = None
     notes: str = ""
