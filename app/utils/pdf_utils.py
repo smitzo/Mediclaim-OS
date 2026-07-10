@@ -10,6 +10,7 @@ import base64
 import io
 import logging
 import fitz  # PyMuPDF
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,12 @@ logger = logging.getLogger(__name__)
 def get_page_count(pdf_bytes: bytes) -> int:
     """Return the total number of pages in the PDF."""
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if doc.is_encrypted: raise ValueError("Encrypted PDFs are unsupported.")
+        if not doc.page_count: raise ValueError("PDF has no pages.")
+        if doc.page_count > settings.max_pdf_pages: return doc.page_count
+        for page in doc:
+            if page.rect.width * page.rect.height * (120 / 72)**2 > settings.max_render_pixels:
+                raise ValueError("PDF page dimensions exceed rendering limits.")
         return doc.page_count
 
 
@@ -57,6 +64,8 @@ def render_selected_pages_to_base64(
                 logger.warning("Skipping out-of-range page render request: %d", page_num)
                 continue
             page = doc[page_num]
+            if page.rect.width * page.rect.height * zoom**2 > settings.max_render_pixels:
+                raise ValueError("PDF page exceeds rendering limits.")
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
             png_bytes = pixmap.tobytes("png")
             result[page_num] = base64.b64encode(png_bytes).decode("utf-8")
@@ -83,6 +92,7 @@ def extract_page_texts(pdf_bytes: bytes) -> dict[int, str]:
         for page_num in range(doc.page_count):
             page = doc[page_num]
             text = page.get_text("text")
+            if len(text) > settings.max_page_text_chars: raise ValueError("PDF page text exceeds the configured limit.")
             result[page_num] = text.strip()
 
     return result

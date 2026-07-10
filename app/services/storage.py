@@ -36,7 +36,7 @@ class ClaimStorage:
             raise HTTPException(status_code=404, detail="Claim job not found.")
         return row
 
-    def create_job(self, claim_id, filename, pdf_bytes, page_count, tenant_id="default", idempotency_key=None) -> ClaimJob:
+    def create_job(self, claim_id, filename, pdf_bytes, page_count, tenant_id="default", idempotency_key=None, enqueue=True) -> ClaimJob:
         if idempotency_key and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", idempotency_key):
             raise HTTPException(status_code=400, detail="Invalid idempotency key.")
         fingerprint = hashlib.sha256(json.dumps([claim_id, filename, hashlib.sha256(pdf_bytes).hexdigest()]).encode()).hexdigest()
@@ -60,9 +60,17 @@ class ClaimStorage:
                         return ClaimJob(**existing["data"])
                 if not tenant:
                     connection.execute(insert(tenants).values(id=tenant_id, name=tenant_id))
+                rows = connection.execute(select(jobs.c.status, jobs.c.created_at, jobs.c.data).where(jobs.c.tenant_id == tenant_id, jobs.c.deleted.is_(False))).all()
+                if sum(row.status in {"queued", "processing"} for row in rows) >= settings.max_tenant_active_jobs:
+                    raise HTTPException(status_code=429, detail="Tenant active-job quota exceeded.")
+                if sum(row.data["file_size_bytes"] for row in rows)+len(pdf_bytes) > settings.max_tenant_storage_bytes:
+                    raise HTTPException(status_code=413, detail="Tenant document-storage quota exceeded.")
+                if sum(datetime.fromisoformat(row.created_at).timestamp() > time.time()-86400 for row in rows) >= settings.max_tenant_jobs_per_day:
+                    raise HTTPException(status_code=429, detail="Tenant daily submission quota exceeded.")
                 connection.execute(insert(jobs).values(id=job_id, tenant_id=tenant_id, claim_id=claim_id, status=job.status,
                     created_at=now, version=1, deleted=False, object_key=key, checksum=hashlib.sha256(pdf_bytes).hexdigest(), data=job.model_dump()))
-                connection.execute(insert(outbox).values(id=uuid.uuid4().hex, job_id=job_id, tenant_id=tenant_id, published=False, available_at=time.time(), attempts=0))
+                if enqueue:
+                    connection.execute(insert(outbox).values(id=uuid.uuid4().hex, job_id=job_id, tenant_id=tenant_id, published=False, available_at=time.time(), attempts=0))
                 if idempotency_key:
                     connection.execute(insert(idempotency).values(tenant_id=tenant_id, key=idempotency_key, fingerprint=fingerprint, job_id=job_id))
         except Exception:

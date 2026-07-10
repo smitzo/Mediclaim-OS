@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     max_upload_bytes: int = 200 * 1024 * 1024
     max_pdf_pages: int = 500
+    max_request_bytes: int = 220 * 1024 * 1024
+    max_batch_files: int = 20
+    max_batch_bytes: int = 200 * 1024 * 1024
+    max_render_pixels: int = 20_000_000
+    max_page_text_chars: int = 100_000
+    max_tenant_active_jobs: int = 20
+    max_tenant_storage_bytes: int = 1024 * 1024 * 1024
+    max_tenant_jobs_per_day: int = 1000
     auth_token_ttl_seconds: int = 24 * 60 * 60
     auth_cookie_secure: bool = False
     auth_demo_enabled: bool = False

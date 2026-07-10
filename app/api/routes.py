@@ -24,6 +24,7 @@ from app.core.schemas import (
 from app.services.processor import process_claim_pdf
 from app.services.auth import auth_store
 from app.services.storage import storage
+from app.services.attempts import AttemptService
 from app.utils.pdf_utils import get_page_count
 from app.workers.tasks import process_claim_job
 
@@ -143,31 +144,20 @@ async def process_claim(
     2. Three specialist agents extract data in parallel from their assigned pages.
     3. Aggregator combines all results into a single JSON response.
     """
-    # Validate file type
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
-    logger.info("Received claim %s | file=%s | size=%d bytes", claim_id, file.filename, len(pdf_bytes))
-
+    pdf_bytes, page_count = await _validated_pdf(file)
+    job = storage.create_job(claim_id, file.filename or "claim.pdf", pdf_bytes, page_count, session.tenant_id, enqueue=False)
+    attempts = AttemptService(storage)
+    attempt = attempts.acquire(job.job_id)
     try:
-        response = process_claim_pdf(claim_id, pdf_bytes)
-    except Exception as exc:
-        logger.exception("Pipeline failed for claim %s: %s", claim_id, exc)
-        raise HTTPException(status_code=500, detail=f"Processing pipeline error: {exc}")
-
-    logger.info(
-        "Pipeline completed for claim %s | status=%s | extracted_sections=%s | errors=%d",
-        claim_id,
-        response.status,
-        sorted(response.extracted_data.keys()),
-        len(response.errors),
-    )
-
-    return JSONResponse(content=response.model_dump())
+        with attempts.keep_alive(attempt["fence"]):
+            response = process_claim_pdf(claim_id, pdf_bytes)
+            if not attempts.complete(attempt["fence"], response):
+                raise HTTPException(status_code=409, detail="Processing ownership changed.")
+    except HTTPException: raise
+    except Exception:
+        attempts.fail(attempt["fence"])
+        raise HTTPException(status_code=500, detail="Claim processing failed.")
+    return JSONResponse(content=response.model_dump(mode="json"))
 
 
 @router.post(
@@ -202,6 +192,10 @@ async def submit_claim_batch(
     session: AuthSession = Depends(_upload_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ClaimBatchSubmitResponse:
+    if len(files) > settings.max_batch_files:
+        raise HTTPException(status_code=413, detail="Batch contains too many files.")
+    if sum(file.size or 0 for file in files) > settings.max_batch_bytes:
+        raise HTTPException(status_code=413, detail="Batch exceeds the configured total size limit.")
     jobs: list[ClaimJob] = []
     rejected: list[dict[str, str]] = []
 
@@ -325,7 +319,7 @@ async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
     if len(file.filename) > 180:
         raise HTTPException(status_code=400, detail="Uploaded filename is too long.")
 
-    pdf_bytes = await file.read()
+    pdf_bytes = await file.read(settings.max_upload_bytes + 1)
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if not pdf_bytes.startswith(b"%PDF"):
@@ -336,7 +330,7 @@ async def _validated_pdf(file: UploadFile) -> tuple[bytes, int]:
     try:
         page_count = get_page_count(pdf_bytes)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Uploaded file is not a valid PDF: {exc}") from exc
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid supported PDF.") from exc
 
     if page_count > settings.max_pdf_pages:
         raise HTTPException(

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
+from app.core.upload_limits import RequestSizeLimit
 from app.core.observability import metrics_snapshot, request_metrics_middleware
 
 
@@ -40,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(RequestSizeLimit)
 app.include_router(router, prefix="/api")
 
 
