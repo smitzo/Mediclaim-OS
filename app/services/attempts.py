@@ -28,10 +28,12 @@ class AttemptService:
             return attempt
 
     def _owned(self, connection, fence):
-        row = connection.execute(select(attempts).where(attempts.c.fence == fence, attempts.c.status == "running", attempts.c.lease_until > time.time()).with_for_update()).mappings().first()
+        row = connection.execute(select(attempts).where(attempts.c.fence == fence, attempts.c.status == "running", attempts.c.lease_until > time.time())).mappings().first()
         if row is None: return None
         job = connection.execute(select(jobs).where(jobs.c.id == row["job_id"], jobs.c.deleted.is_(False), jobs.c.status == "processing").with_for_update()).mappings().first()
-        return (row, job) if job else None
+        if not job: return None
+        locked = connection.execute(select(attempts).where(attempts.c.id == row["id"], attempts.c.status == "running", attempts.c.lease_until > time.time()).with_for_update()).mappings().first()
+        return (locked, job) if locked else None
 
     def heartbeat(self, fence):
         with self.store.db.transaction() as connection:
@@ -75,7 +77,7 @@ class AttemptService:
     def reconcile(self):
         recovered = 0
         with self.store.db.transaction() as connection:
-            expired = connection.execute(select(attempts).where(attempts.c.status == "running", attempts.c.lease_until <= time.time()).with_for_update(skip_locked=True)).mappings().all()
+            expired = connection.execute(select(attempts).where(attempts.c.status == "running", attempts.c.lease_until <= time.time())).mappings().all()
             for attempt in expired:
                 job = connection.execute(select(jobs).where(jobs.c.id == attempt["job_id"], jobs.c.deleted.is_(False), jobs.c.status == "processing").with_for_update()).mappings().first()
                 if job:

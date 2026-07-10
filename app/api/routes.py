@@ -260,6 +260,12 @@ async def get_claim_job(job_id: str, session: AuthSession = Depends(_current_ses
     return job
 
 
+@router.delete("/claims/{job_id}", tags=["Claims"])
+async def delete_claim_job(job_id: str, session: AuthSession = Depends(require_role("administrator"))):
+    from app.services.lifecycle import delete_claim
+    return delete_claim(storage, job_id, session.tenant_id, session.username)
+
+
 @router.get("/claims/{job_id}/document", tags=["Claims"])
 async def get_claim_document(job_id: str, session: AuthSession = Depends(_current_session)):
     content = storage.read_pdf(job_id, session.tenant_id)
