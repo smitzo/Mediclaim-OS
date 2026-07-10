@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     log_level: str = "INFO"
+    metrics_token: str = ""
     data_dir: str = "data"
     database_url: str = ""
     document_store: str = "local"

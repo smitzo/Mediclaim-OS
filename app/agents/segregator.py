@@ -193,7 +193,7 @@ def _classify_chunk(
         except Exception as exc:
             last_error = exc
             logger.warning(
-                "[Segregator] Chunk attempt %d/%d failed for pages %s: %s",
+                "[Segregator] Chunk attempt %d/%d failed for pages %s",
                 attempt,
                 SEGREGATOR_MAX_RETRIES,
                 chunk,

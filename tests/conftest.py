@@ -20,6 +20,8 @@ from app.services.storage import ClaimStorage
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "storage", ClaimStorage(tmp_path))
+    from app.core import observability
+    monkeypatch.setattr(observability, "storage", routes.storage)
     monkeypatch.setattr(routes, "auth_store", AuthStore(tmp_path / "auth", routes.storage.db))
     monkeypatch.setattr(routes.process_claim_job, "delay", lambda *args: None)
     monkeypatch.setattr(routes, "process_claim_pdf", lambda claim_id, _: ClaimResponse(

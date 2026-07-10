@@ -1,13 +1,14 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header, HTTPException
+import hmac
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
 from app.core.upload_limits import RequestSizeLimit
-from app.core.observability import metrics_snapshot, request_metrics_middleware
+from app.core.observability import metrics_snapshot, request_metrics_middleware, readiness
 
 
 def configure_logging() -> None:
@@ -70,11 +71,20 @@ async def root():
     }
 
 
+@app.get("/health/live", tags=["Health"])
 @app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok"}
 
 
 @app.get("/metrics", tags=["Health"])
-async def metrics():
+async def metrics(authorization: str | None = Header(default=None)):
+    if settings.app_env == "production" and (not settings.metrics_token or not hmac.compare_digest(authorization or "", "Bearer "+settings.metrics_token)):
+        raise HTTPException(status_code=401, detail="Monitoring authentication required.")
     return metrics_snapshot()
+
+
+@app.get("/health/ready", tags=["Health"])
+async def ready():
+    checks = readiness()
+    return JSONResponse(status_code=200 if all(value == "ok" for value in checks.values()) else 503, content={"status": "ready" if all(value == "ok" for value in checks.values()) else "unavailable", "checks": checks})

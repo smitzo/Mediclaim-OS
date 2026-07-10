@@ -18,6 +18,8 @@ class Database:
                 connection.execute("PRAGMA journal_mode=WAL")
         if initialize:
             metadata.create_all(self.engine)
+            from app.db.operations import metadata as operations_metadata
+            operations_metadata.create_all(self.engine)
 
     @contextmanager
     def transaction(self):
