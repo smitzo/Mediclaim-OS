@@ -213,10 +213,10 @@ async def submit_claim_batch(
                 "reason": str(exc.detail),
             })
         except Exception as exc:
-            logger.exception("Batch submit failed for %s", upload.filename)
+            logger.error("Batch submission failed")
             rejected.append({
                 "filename": upload.filename or f"file-{index}",
-                "reason": str(exc),
+                "reason": "Unable to store this upload.",
             })
 
     if not jobs and rejected:

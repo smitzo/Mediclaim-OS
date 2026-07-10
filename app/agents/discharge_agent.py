@@ -50,7 +50,7 @@ TEXT_SNIPPET_LIMIT = 1200
 
 
 def discharge_agent(state: ClaimState) -> dict:
-    logger.info("[Discharge Agent] Starting extraction for claim %s", state.claim_id)
+    logger.info("[Discharge Agent] Stage started")
 
     if state.segregator_output is None:
         errors = state.errors.copy() if state.errors else []
@@ -79,15 +79,14 @@ def discharge_agent(state: ClaimState) -> dict:
         result = _extract_and_merge(state, summary_pages, prescription_pages)
         discharge_data = _build_discharge_data(result)
         logger.info(
-            "[Discharge Agent] Extraction complete | diagnosis=%s | prescriptions=%d",
-            discharge_data.final_diagnosis or "N/A",
+            "[Discharge Agent] Extraction complete | prescriptions=%d",
             len(discharge_data.prescriptions),
         )
         return {"discharge_data": discharge_data, "extraction_methods": {"discharge_summary": "model"}}
     except Exception as exc:
-        logger.exception("[Discharge Agent] Extraction failed")
+        logger.error("[Discharge Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
-        errors.append(f"Discharge Agent error: {exc}")
+        errors.append("Discharge extraction unavailable.")
         return {"discharge_data": local_discharge, "extraction_methods": {"discharge_summary": "text"}, "errors": errors}
 
 

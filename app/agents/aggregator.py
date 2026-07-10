@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def aggregator(state: ClaimState) -> dict[str, Any]:
     """LangGraph node: aggregate all extracted data into a final response."""
     unique_errors = _unique_errors(state.errors)
-    logger.info("[Aggregator] Building final response for claim %s", state.claim_id)
+    logger.info("[Aggregator] Stage started")
     logger.info(
         "[Aggregator] Inputs | segregated=%s | identity=%s | discharge=%s | bill=%s | errors=%d",
         state.segregator_output is not None,

@@ -64,7 +64,7 @@ Response format (strict JSON array, one entry per page, 0-indexed):
 
 def segregator_agent(state: ClaimState) -> ClaimState:
     """LangGraph node: classify every PDF page by document type."""
-    logger.info("[Segregator] Starting page classification for claim %s", state.claim_id)
+    logger.info("[Segregator] Stage started")
 
     pdf_bytes = state.pdf_bytes
     total_pages = get_page_count(pdf_bytes)
@@ -117,9 +117,9 @@ def segregator_agent(state: ClaimState) -> ClaimState:
         try:
             result.extend(_classify_chunk(state.claim_id, chunk, page_texts, page_images))
         except Exception as exc:
-            logger.exception("[Segregator] Chunk classification failed for pages %s", chunk)
+            logger.error("[Segregator] Chunk classification failed for pages %s", chunk)
             # If a chunk fails, retry page-by-page so one bad response does not ruin the whole PDF.
-            errors.append(f"Segregator chunk error for pages {chunk}: {exc}")
+            errors.append("Page classification unavailable.")
             result.extend(_classify_pages_individually(state.claim_id, chunk, page_texts, page_images, errors))
 
     result = sorted(result, key=lambda item: item["page_number"])
@@ -132,7 +132,7 @@ def segregator_agent(state: ClaimState) -> ClaimState:
             page_num = int(entry.get("page_number", 0))
             doc_type = entry.get("document_type", "other")
             if doc_type not in DOCUMENT_TYPES:
-                logger.warning("[Segregator] Unknown doc type '%s' on page %d, setting to 'other'", doc_type, page_num)
+                logger.warning("[Segregator] Unsupported document type on page %d", page_num)
                 doc_type = "other"
             pc = PageClassification(
                 page_number=page_num,
@@ -143,7 +143,7 @@ def segregator_agent(state: ClaimState) -> ClaimState:
             pages.append(pc)
             doc_page_map[doc_type].append(page_num)
         except Exception as exc:
-            logger.warning("[Segregator] Failed to parse entry %s: %s", entry, exc)
+            logger.warning("[Segregator] Invalid classification entry")
 
     doc_page_map = {k: v for k, v in doc_page_map.items() if v}
 
@@ -197,7 +197,6 @@ def _classify_chunk(
                 attempt,
                 SEGREGATOR_MAX_RETRIES,
                 chunk,
-                exc,
             )
             if attempt < SEGREGATOR_MAX_RETRIES:
                 time.sleep(1.5 * attempt)
@@ -221,8 +220,8 @@ def _classify_pages_individually(
                 continue
             raise RuntimeError("Empty page classification result")
         except Exception as exc:
-            logger.warning("[Segregator] Page fallback failed for page %d: %s", page, exc)
-            errors.append(f"Segregator page fallback error for page {page}: {exc}")
+            logger.warning("[Segregator] Page fallback failed for page %d", page)
+            errors.append("Page fallback classification unavailable.")
             results.append({
                 "page_number": page,
                 "document_type": "other",

@@ -111,8 +111,8 @@ def _call_openai_json(system_prompt: str, messages: list[Any], model: str, max_t
         raw_text = response.json()["choices"][0]["message"]["content"]
         return _extract_json(raw_text)
     except Exception as exc:
-        logger.exception("[LLM] OpenAI API call failed")
-        raise ValueError(f"OpenAI API call failed: {exc}") from exc
+        logger.error("[LLM] OpenAI API call failed")
+        raise ValueError("Provider extraction is unavailable.") from None
 
 
 def _openai_content(messages: list[Any]) -> list[dict[str, Any]]:
@@ -137,6 +137,8 @@ def _call_gemini_json(system_prompt: str, messages: list[Any], model: str, max_t
         raise ValueError("GOOGLE_API_KEY is not configured. Set LLM_PROVIDER=openai or add a Gemini key.")
     gemini_model = _gemini_model(model, max_tokens)
     response = gemini_model.generate_content([system_prompt] + messages)
+    usage = getattr(response, "usage_metadata", None)
+    if usage: record_usage(getattr(usage, "prompt_token_count", 0), getattr(usage, "candidates_token_count", 0))
     return _extract_json(response.text)
 
 
@@ -145,6 +147,8 @@ def _call_gemini_text_json(system_prompt: str, user_prompt: str, model: str, max
         raise ValueError("GOOGLE_API_KEY is not configured. Set LLM_PROVIDER=openai or add a Gemini key.")
     gemini_model = _gemini_model(model, max_tokens)
     response = gemini_model.generate_content(f"{system_prompt}\n\n{user_prompt}")
+    usage = getattr(response, "usage_metadata", None)
+    if usage: record_usage(getattr(usage, "prompt_token_count", 0), getattr(usage, "candidates_token_count", 0))
     return _extract_json(response.text)
 
 
@@ -174,7 +178,7 @@ def _extract_json(text: str) -> Any:
             return json.loads(candidate)
         except json.JSONDecodeError:
             pass
-    raise ValueError(f"Could not extract valid JSON from model response. Preview:\n{text[:500]}")
+    raise ValueError("Model response did not contain valid JSON.")
 
 
 def _find_balanced_json(text: str) -> str | None:

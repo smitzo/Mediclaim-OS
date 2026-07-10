@@ -50,7 +50,7 @@ BILL_CHUNK_SIZE = 1
 
 
 def bill_agent(state: ClaimState) -> dict:
-    logger.info("[Bill Agent] Starting extraction for claim %s", state.claim_id)
+    logger.info("[Bill Agent] Stage started")
 
     if state.segregator_output is None:
         errors = state.errors.copy() if state.errors else []
@@ -77,15 +77,14 @@ def bill_agent(state: ClaimState) -> dict:
         merged = _extract_billing_chunks(state, assigned_pages)
         bill_data = _build_bill_data(merged)
         logger.info(
-            "[Bill Agent] Extraction complete | total=%s | line_items=%d",
-            bill_data.total_amount or "N/A",
+            "[Bill Agent] Extraction complete | line_items=%d",
             len(bill_data.line_items),
         )
         return {"bill_data": bill_data, "extraction_methods": {"itemized_bill": "model"}}
     except Exception as exc:
-        logger.exception("[Bill Agent] Extraction failed")
+        logger.error("[Bill Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
-        errors.append(f"Bill Agent error: {exc}")
+        errors.append("Bill extraction unavailable.")
         return {"bill_data": local_bill, "extraction_methods": {"itemized_bill": "text"}, "errors": errors}
 
 
@@ -183,5 +182,5 @@ def _coerce_line_items(raw_items: list[Any]) -> list[BillLineItem]:
                 key: value for key, value in payload.items() if key in BillLineItem.model_fields
             }))
         except Exception as exc:
-            logger.warning("[Bill Agent] Skipping malformed line item %s: %s", item, exc)
+            raise ValueError("Model returned an invalid billing line item.") from None
     return line_items

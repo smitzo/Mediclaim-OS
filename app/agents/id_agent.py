@@ -42,7 +42,7 @@ TEXT_SNIPPET_LIMIT = 1400
 
 
 def id_agent(state: ClaimState) -> dict:
-    logger.info("[ID Agent] Starting extraction for claim %s", state.claim_id)
+    logger.info("[ID Agent] Stage started")
 
     if state.segregator_output is None:
         errors = state.errors.copy() if state.errors else []
@@ -91,17 +91,17 @@ def id_agent(state: ClaimState) -> dict:
             k: v for k, v in result.items()
             if k in IdentityData.model_fields or k == "extra_fields"
         })
-        logger.info("[ID Agent] Extraction complete | patient=%s", identity_data.patient_name or "N/A")
+        logger.info("[ID Agent] Extraction complete")
         return {"identity_data": identity_data, "extraction_methods": {"identity": "model"}}
     except Exception as exc:
-        logger.exception("[ID Agent] Extraction failed")
+        logger.error("[ID Agent] Extraction failed")
         fallback_data = extract_identity_data_from_text(text_context)
         if has_identity_signal(fallback_data):
             logger.info("[ID Agent] Recovered identity data from local text fallback")
             return {"identity_data": fallback_data}
 
         errors = state.errors.copy() if state.errors else []
-        errors.append(f"ID Agent error: {exc}")
+        errors.append("Identity extraction unavailable.")
         return {"identity_data": IdentityData(), "errors": errors}
 
 
