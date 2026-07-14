@@ -74,13 +74,16 @@ def aggregator(state: ClaimState) -> dict[str, Any]:
     # -----------------------------------------------------------------------
     doc_map = state.segregator_output.document_page_map if state.segregator_output else {}
     evidence = build_evidence(extracted_data, state.page_texts, doc_map, state.extraction_methods)
+    findings = validate_claim(extracted_data, evidence)
+    quality = quality_summary(extracted_data, evidence)
+    quality["requires_review"] = quality["requires_review"] or bool(findings)
     processing_summary: dict[str, Any] = {
         "total_pages": state.total_pages,
         "document_types_found": list(doc_map.keys()),
         "pages_per_document_type": doc_map,
         "agents_ran": _agents_that_ran(state),
         "errors_count": len(unique_errors),
-        "quality": quality_summary(extracted_data, evidence),
+        "quality": quality,
         "field_confidence": {path: None for path in evidence},
         "field_citations": {path: {"source_pages": [item.source_page], "source": "text_span", "supporting_text": item.supporting_text} for path, item in evidence.items() if item.verification == "text_match"},
     }
@@ -107,7 +110,7 @@ def aggregator(state: ClaimState) -> dict[str, Any]:
         errors=unique_errors,
         processing_summary=processing_summary,
         field_evidence=evidence,
-        validation_findings=validate_claim(extracted_data, evidence),
+        validation_findings=findings,
     )
 
     logger.info(

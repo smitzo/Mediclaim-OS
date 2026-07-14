@@ -68,6 +68,10 @@ class Settings(BaseSettings):
             origins = [v.strip() for v in self.allowed_origins.split(",")]
             if not self.auth_cookie_secure or not origins or any(not v.startswith("https://") or "*" in v for v in origins):
                 raise ValueError("Production requires secure cookies and explicit HTTPS origins.")
+            if not self.database_url.startswith("postgresql+psycopg://") or self.document_store != "s3" or not self.s3_bucket:
+                raise ValueError("Production requires PostgreSQL and configured private S3 storage.")
+            if len(self.metrics_token) < 32:
+                raise ValueError("Production requires a monitoring token of at least 32 characters.")
             if self.auth_demo_enabled:
                 raise ValueError("Demo authentication cannot be enabled in production.")
         return self

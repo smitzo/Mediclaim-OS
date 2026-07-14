@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from fastapi import HTTPException
-from sqlalchemy import select, insert, update, func
+from sqlalchemy import select, insert, update, func, or_
 from app.core.config import settings
 from app.core.schemas import ClaimJob, ClaimResponse, ClaimReview, ClaimReviewUpdate, JobStatus
 from app.db.database import Database
@@ -27,10 +27,11 @@ class ClaimStorage:
         self.documents = document_store(self.base_dir)
         self.db = database or Database(settings.database_url or f"sqlite:///{self.base_dir}/claims.sqlite3", initialize=settings.app_env != "production")
 
-    def _job(self, connection, job_id: str, tenant_id: str | None = None):
+    def _job(self, connection, job_id: str, tenant_id: str | None = None, lock=False):
         query = select(jobs).where(jobs.c.id == job_id, jobs.c.deleted.is_(False))
         if tenant_id is not None:
             query = query.where(jobs.c.tenant_id == tenant_id)
+        if lock: query = query.with_for_update()
         row = connection.execute(query).mappings().first()
         if row is None:
             raise HTTPException(status_code=404, detail="Claim job not found.")
@@ -102,24 +103,27 @@ class ClaimStorage:
         statement = select(jobs.c.data).where(jobs.c.deleted.is_(False))
         if tenant_id is not None: statement = statement.where(jobs.c.tenant_id == tenant_id)
         if status: statement = statement.where(jobs.c.status == status)
-        if query: statement = statement.where(jobs.c.claim_id.ilike(f"%{query}%", escape="\\"))
+        if query:
+            term = "%"+query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")+"%"
+            statement = statement.where(or_(jobs.c.claim_id.ilike(term, escape="\\"), jobs.c.data["filename"].as_string().ilike(term, escape="\\")))
         with self.db.engine.connect() as connection:
             return [ClaimJob(**row[0]) for row in connection.execute(statement.order_by(jobs.c.created_at.desc()).offset(offset).limit(limit))]
 
     def update_job(self, job_id, status: JobStatus, error=None):
         with self.db.transaction() as connection:
-            row = self._job(connection, job_id)
+            row = self._job(connection, job_id, lock=True)
             job = ClaimJob(**row["data"]).model_copy(update={"status": status, "error": error, "updated_at": utc_now()})
             connection.execute(update(jobs).where(jobs.c.id == job_id, jobs.c.version == row["version"]).values(status=status, data=job.model_dump(), version=row["version"]+1))
             return job
 
     def retry_job(self, job_id, tenant_id=None):
         with self.db.transaction() as connection:
-            row = self._job(connection, job_id, tenant_id)
+            row = self._job(connection, job_id, tenant_id, lock=True)
             job = ClaimJob(**row["data"])
             if job.status not in {"failed", "partial"}:
                 raise HTTPException(status_code=409, detail="Only failed or partial jobs can be retried.")
             job.processing_generation += 1
+            job.next_attempt_at = 0
             job.status, job.error, job.retry_count, job.updated_at = "queued", None, job.retry_count+1, utc_now()
             changed = connection.execute(update(jobs).where(jobs.c.id == job_id, jobs.c.version == row["version"]).values(status="queued", data=job.model_dump(), version=row["version"]+1))
             if changed.rowcount != 1: raise HTTPException(status_code=409, detail="Job changed; reload and retry.")
@@ -128,7 +132,7 @@ class ClaimStorage:
 
     def save_result(self, job_id, response):
         with self.db.transaction() as connection:
-            job = self._job(connection, job_id)
+            job = self._job(connection, job_id, lock=True)
             version = connection.execute(select(func.max(results.c.version)).where(results.c.job_id == job_id)).scalar() or 0
             connection.execute(insert(results).values(job_id=job_id, version=version+1, tenant_id=job["tenant_id"], data=response.model_dump(mode="json")))
 
@@ -144,13 +148,18 @@ class ClaimStorage:
             job = self._job(connection, job_id, tenant_id)
             row = connection.execute(select(reviews.c.data).where(reviews.c.job_id == job_id, reviews.c.tenant_id == job["tenant_id"])).first()
             latest = connection.execute(select(func.max(results.c.version)).where(results.c.job_id == job_id)).scalar() or 0
-            return ClaimReview(**row[0]) if row else ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], result_version=latest, updated_at=utc_now())
+            if not row:
+                return ClaimReview(job_id=job_id, tenant_id=job["tenant_id"], result_version=latest, updated_at=utc_now())
+            review = ClaimReview(**row[0])
+            if review.result_version != latest:
+                return review.model_copy(update={"result_version": latest, "status": "needs_review", "corrected_data": {}, "acknowledged_findings": [], "validation_findings": [], "notes": ""})
+            return review
 
     def save_review(self, job_id, tenant_id, payload):
         from app.services.review import corrected_result, approval_allowed
         from app.services.validation import validate_claim
         with self.db.transaction() as connection:
-            job = self._job(connection, job_id, tenant_id)
+            job = self._job(connection, job_id, tenant_id, lock=True)
             previous = connection.execute(select(reviews).where(reviews.c.job_id == job_id).with_for_update()).mappings().first()
             version = previous["version"] if previous else 0
             if payload.expected_version != version:
@@ -158,6 +167,10 @@ class ClaimStorage:
             result = connection.execute(select(results).where(results.c.job_id == job_id).order_by(results.c.version.desc()).limit(1)).mappings().first()
             if not result or result["version"] != payload.result_version:
                 raise HTTPException(status_code=409, detail="Extraction result changed or is unavailable. Reload before reviewing.")
+            if previous and previous["data"].get("result_version") == result["version"]:
+                old_status = previous["data"]["status"]
+                if old_status in {"approved", "rejected"} and payload.status not in {old_status, "needs_review"}:
+                    raise HTTPException(status_code=422, detail="Reopen a completed review before changing its decision.")
             original = ClaimResponse(**result["data"])
             corrected = corrected_result(original.extracted_data, payload.corrected_data)
             findings = validate_claim(corrected, original.field_evidence)

@@ -14,6 +14,7 @@ class ProviderBudget:
         self.max_output_tokens = max_output_tokens if max_output_tokens is not None else settings.provider_max_output_tokens
         self.calls = self.reserved_output = self.input_tokens = self.output_tokens = 0
         self.exhausted = False
+        self.stage_timings = {}
         self.lock = Lock()
 
     def reserve(self, output_tokens):
@@ -31,7 +32,7 @@ class ProviderBudget:
 
     def snapshot(self):
         with self.lock:
-            return {"calls": self.calls, "reserved_output_tokens": self.reserved_output, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens, "exhausted": self.exhausted, "cost": None}
+            return {"calls": self.calls, "reserved_output_tokens": self.reserved_output, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens, "exhausted": self.exhausted, "cost": None, "stage_timings_ms": dict(self.stage_timings)}
 
 
 _current: ContextVar[ProviderBudget | None] = ContextVar("provider_budget", default=None)
@@ -53,3 +54,9 @@ def reserve(tokens):
 def record_usage(input_tokens=0, output_tokens=0):
     budget = _current.get()
     if budget is not None: budget.usage(input_tokens, output_tokens)
+
+
+def record_stage(name, milliseconds):
+    budget = _current.get()
+    if budget is not None:
+        with budget.lock: budget.stage_timings[name] = budget.stage_timings.get(name, 0)+milliseconds

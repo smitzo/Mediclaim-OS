@@ -6,7 +6,7 @@ from app.core.config import Settings, settings
 def test_production_requires_safe_session_configuration():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, app_env="production")
-    config = Settings(_env_file=None, app_env="production", allowed_origins="https://claims.example", auth_cookie_secure=True)
+    config = Settings(_env_file=None, app_env="production", allowed_origins="https://claims.example", auth_cookie_secure=True, database_url="postgresql+psycopg://localhost/claims", document_store="s3", s3_bucket="private-test", metrics_token="x"*32)
     assert not config.auth_demo_enabled
 
 

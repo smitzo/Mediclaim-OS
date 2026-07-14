@@ -722,7 +722,7 @@ function AuthScreen({
               value={username}
               onChange={(event) => onUsernameChange(event.target.value)}
               className="mt-1 h-11 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              placeholder="demo"
+              placeholder="Company username"
               autoComplete="username"
             />
           </label>
@@ -733,7 +733,7 @@ function AuthScreen({
               value={password}
               onChange={(event) => onPasswordChange(event.target.value)}
               className="mt-1 h-11 w-full rounded-md border border-zinc-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              placeholder="demo"
+              placeholder="Password"
               type="password"
               autoComplete={authMode === "register" ? "new-password" : "current-password"}
             />
@@ -752,9 +752,9 @@ function AuthScreen({
           </button>
         </form>
 
-        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-          Use username <span className="font-semibold">demo</span> and password <span className="font-semibold">demo</span> to enter the demo tenant immediately.
-        </div>
+        {process.env.NEXT_PUBLIC_DEMO_ENABLED === "true" ? <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Local demo: use username <span className="font-semibold">demo</span> and password <span className="font-semibold">demo</span> when demo access is enabled on the server.
+        </div> : null}
       </section>
     </main>
   );
@@ -794,7 +794,6 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
   const lineItems = Array.isArray(bill.line_items) ? bill.line_items : [];
   const summary = result.processing_summary;
   const agents = Array.isArray(summary.agents_ran) ? summary.agents_ran.map(String) : [];
-  const confidenceCount = getRecord(summary.field_confidence);
   const citationCount = getRecord(summary.field_citations);
 
   return (
@@ -834,7 +833,7 @@ function ResultSummary({ result }: { result: ClaimResponse }) {
               {String(summary.total_pages ?? result.page_classification.length)} pages, {result.page_classification.length} classifications, {result.errors.length} errors
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              {Object.keys(confidenceCount).length} confidence scores, {Object.keys(citationCount).length} field citations
+              {Object.keys(citationCount).length} field citations; confidence is unscored
             </p>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">

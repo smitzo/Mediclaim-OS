@@ -13,8 +13,9 @@ import re
 from typing import Any, Union
 
 import httpx
-import google.generativeai as genai
-from google.generativeai.types import HarmBlockThreshold, HarmCategory
+from google import genai
+from google.genai import types
+import base64
 
 from app.core.config import settings
 from app.services.provider_budget import reserve, record_usage
@@ -26,12 +27,15 @@ openai_api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
 google_api_key = settings.google_api_key or os.environ.get("GOOGLE_API_KEY", "")
 
 if provider == "gemini" and google_api_key:
-    genai.configure(api_key=google_api_key)
     logger.info("[LLM] Gemini configured")
 elif provider == "openai" and openai_api_key:
     logger.info("[LLM] OpenAI configured")
 else:
     logger.warning("[LLM] Missing API key for provider=%s", provider)
+
+
+class ProviderTransientError(TimeoutError):
+    """Temporary provider failure; safe to retry within the processing policy."""
 
 
 def build_vision_message(prompt: str, images: list[str]) -> list[Union[str, dict]]:
@@ -108,8 +112,17 @@ def _call_openai_json(system_prompt: str, messages: list[Any], model: str, max_t
         response.raise_for_status()
         usage = response.json().get("usage", {})
         record_usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
-        raw_text = response.json()["choices"][0]["message"]["content"]
+        choice = response.json()["choices"][0]
+        if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
+            raise ValueError("Provider output was incomplete or refused.")
+        raw_text = choice["message"]["content"]
         return _extract_json(raw_text)
+    except (httpx.TimeoutException, httpx.NetworkError):
+        raise ProviderTransientError("Provider is temporarily unavailable.") from None
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429 or exc.response.status_code >= 500:
+            raise ProviderTransientError("Provider is temporarily unavailable.") from None
+        raise ValueError("Provider rejected the extraction request.") from None
     except Exception as exc:
         logger.error("[LLM] OpenAI API call failed")
         raise ValueError("Provider extraction is unavailable.") from None
@@ -134,35 +147,22 @@ def _openai_content(messages: list[Any]) -> list[dict[str, Any]]:
 
 def _call_gemini_json(system_prompt: str, messages: list[Any], model: str, max_tokens: int) -> Any:
     if not google_api_key:
-        raise ValueError("GOOGLE_API_KEY is not configured. Set LLM_PROVIDER=openai or add a Gemini key.")
-    gemini_model = _gemini_model(model, max_tokens)
-    response = gemini_model.generate_content([system_prompt] + messages)
+        raise ValueError("GOOGLE_API_KEY is not configured.")
+    parts = []
+    for message in messages:
+        if isinstance(message, str): parts.append(types.Part.from_text(text=message))
+        elif isinstance(message, dict) and message.get("inline_data"):
+            inline = message["inline_data"]
+            parts.append(types.Part.from_bytes(data=base64.b64decode(inline["data"], validate=True), mime_type=inline.get("mime_type", "image/png")))
+    with genai.Client(api_key=google_api_key, http_options=types.HttpOptions(timeout=90000)) as client:
+        response = client.models.generate_content(model=model, contents=[types.Content(role="user", parts=parts)], config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.1, max_output_tokens=max_tokens, response_mime_type="application/json"))
     usage = getattr(response, "usage_metadata", None)
     if usage: record_usage(getattr(usage, "prompt_token_count", 0), getattr(usage, "candidates_token_count", 0))
-    return _extract_json(response.text)
+    return _extract_json(response.text or "")
 
 
 def _call_gemini_text_json(system_prompt: str, user_prompt: str, model: str, max_tokens: int) -> Any:
-    if not google_api_key:
-        raise ValueError("GOOGLE_API_KEY is not configured. Set LLM_PROVIDER=openai or add a Gemini key.")
-    gemini_model = _gemini_model(model, max_tokens)
-    response = gemini_model.generate_content(f"{system_prompt}\n\n{user_prompt}")
-    usage = getattr(response, "usage_metadata", None)
-    if usage: record_usage(getattr(usage, "prompt_token_count", 0), getattr(usage, "candidates_token_count", 0))
-    return _extract_json(response.text)
-
-
-def _gemini_model(model: str, max_tokens: int):
-    return genai.GenerativeModel(
-        model_name=model,
-        generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
-        safety_settings={
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        },
-    )
+    return _call_gemini_json(system_prompt, [user_prompt], model, max_tokens)
 
 
 def _extract_json(text: str) -> Any:

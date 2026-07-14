@@ -211,6 +211,7 @@ class ClaimJob(BaseModel):
     file_size_bytes: int = 0
     retry_count: int = 0
     processing_generation: int = 0
+    next_attempt_at: float = 0
     error: Optional[str] = None
     result_url: Optional[str] = None
 

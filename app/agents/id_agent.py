@@ -7,7 +7,7 @@ import logging
 
 from app.core.schemas import AGENT_DOCUMENT_MAP, ClaimState, IdentityData
 from app.utils.text_extractors import extract_identity_data_from_text, has_identity_signal
-from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.llm_client import ProviderTransientError, build_vision_message, call_llm_json, call_llm_json_text_only
 from app.utils.pdf_utils import render_selected_pages_to_base64
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,7 @@ def id_agent(state: ClaimState) -> dict:
         logger.info("[ID Agent] Extraction complete")
         return {"identity_data": identity_data, "extraction_methods": {"identity": "model"}}
     except Exception as exc:
+        if isinstance(exc, ProviderTransientError): raise
         logger.error("[ID Agent] Extraction failed")
         fallback_data = extract_identity_data_from_text(text_context)
         if has_identity_signal(fallback_data):

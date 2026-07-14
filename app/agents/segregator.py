@@ -12,7 +12,7 @@ from app.core.schemas import (
     SegregatorOutput,
     DOCUMENT_TYPES,
 )
-from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.llm_client import ProviderTransientError, build_vision_message, call_llm_json, call_llm_json_text_only
 from app.utils.pdf_utils import extract_page_texts, get_page_count, render_selected_pages_to_base64
 
 logger = logging.getLogger(__name__)
@@ -51,8 +51,8 @@ Rules:
 3. Return ONLY valid JSON, no markdown fences, no commentary.
 4. Keep each description under 12 words.
 
-Response format (strict JSON array, one entry per page, 0-indexed):
-[
+Response format (strict JSON object containing pages, one entry per page, 0-indexed):
+{"pages": [
   {
     "page_number": 0,
     "document_type": "<one of the 9 types>",
@@ -117,6 +117,7 @@ def segregator_agent(state: ClaimState) -> ClaimState:
         try:
             result.extend(_classify_chunk(state.claim_id, chunk, page_texts, page_images))
         except Exception as exc:
+            if isinstance(exc, ProviderTransientError): raise
             logger.error("[Segregator] Chunk classification failed for pages %s", chunk)
             # If a chunk fails, retry page-by-page so one bad response does not ruin the whole PDF.
             errors.append("Page classification unavailable.")
@@ -143,6 +144,7 @@ def segregator_agent(state: ClaimState) -> ClaimState:
             pages.append(pc)
             doc_page_map[doc_type].append(page_num)
         except Exception as exc:
+            if isinstance(exc, ProviderTransientError): raise
             logger.warning("[Segregator] Invalid classification entry")
 
     doc_page_map = {k: v for k, v in doc_page_map.items() if v}
@@ -191,6 +193,7 @@ def _classify_chunk(
             chunk_result = call_llm_json(SEGREGATOR_SYSTEM, messages, max_tokens=1536)
             return _normalize_chunk_result(chunk, chunk_result)
         except Exception as exc:
+            if isinstance(exc, ProviderTransientError): raise
             last_error = exc
             logger.warning(
                 "[Segregator] Chunk attempt %d/%d failed for pages %s",
@@ -220,6 +223,7 @@ def _classify_pages_individually(
                 continue
             raise RuntimeError("Empty page classification result")
         except Exception as exc:
+            if isinstance(exc, ProviderTransientError): raise
             logger.warning("[Segregator] Page fallback failed for page %d", page)
             errors.append("Page fallback classification unavailable.")
             results.append({
@@ -233,6 +237,7 @@ def _classify_pages_individually(
 
 def _normalize_chunk_result(chunk: list[int], chunk_result: list[dict]) -> list[dict]:
     normalized: list[dict] = []
+    if isinstance(chunk_result, dict): chunk_result = chunk_result.get("pages")
     if not isinstance(chunk_result, list):
         raise ValueError(f"Expected list result for chunk {chunk}, got {type(chunk_result).__name__}")
 

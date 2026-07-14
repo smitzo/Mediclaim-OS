@@ -2,6 +2,10 @@
 
 FastAPI + LangGraph service for medical claim PDF processing.
 
+The backend operating guide is [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Customer production release remains blocked by unset acceptance thresholds and
+outstanding staging checks.
+
 This project accepts PDF claim documents, stores them as durable jobs, classifies each page into a document type, routes only the relevant pages to specialist extraction agents, and stores one aggregated JSON result per claim.
 
 Video explanation: https://drive.google.com/file/d/1AT5ryQddgM56CS5ozJYVw5A70nFkQiWl/view
@@ -37,7 +41,7 @@ The LangGraph workflow follows this structure:
 
 ### 1. API Input
 
-The service exposes the production async API:
+The service exposes the asynchronous API:
 
 - `POST /api/claims`
 - `POST /api/claims/batch`
@@ -189,7 +193,7 @@ python -m compileall app
 For development and regression tests, install `requirements-dev.lock` with
 `pip install --require-hashes -r requirements-dev.lock`, then run `pytest -q`.
 The locks include transitive dependencies and distribution hashes. Regenerate
-them from the input files with `uv pip compile --python-version 3.11
+them from the input files with `uv pip compile --python-version 3.12
 --generate-hashes requirements.txt -o requirements.lock` (and the corresponding
 development input/output).
 
@@ -252,14 +256,14 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 Open:
 
 ```text
-http://127.0.0.1:8000/docs
+http://localhost:8000/docs
 ```
 
 Health and metrics:
 
 ```text
-http://127.0.0.1:8000/health
-http://127.0.0.1:8000/metrics
+http://localhost:8000/health
+http://localhost:8000/metrics
 ```
 
 ### 6. Run the Celery worker
@@ -297,7 +301,7 @@ cp .env.example .env.local
 The default value points to the local backend:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
 ### 8. Run the frontend dashboard
@@ -320,7 +324,9 @@ npm run dev -- --port 3001
 
 ### 9. Demo login and sample PDFs
 
-Use the built-in demo bypass:
+Demo authentication is disabled by default. For local synthetic demonstrations,
+set `AUTH_DEMO_ENABLED=true` in the backend and `NEXT_PUBLIC_DEMO_ENABLED=true`
+in the frontend environment, then use:
 
 ```text
 username: demo
@@ -335,6 +341,8 @@ Run these before committing changes:
 
 ```bash
 python -m compileall app
+pytest -q
+python scripts/evaluate_quality.py
 python scripts/evaluate_sample_dataset.py
 cd frontend
 npm run typecheck
@@ -348,15 +356,18 @@ You can run the API, worker, Redis, and shared data volume together:
 
 ```bash
 cp .env.example .env
+# Set a unique POSTGRES_PASSWORD in .env before starting.
 docker compose up --build
 ```
 
 This starts:
 
-- FastAPI API server on `http://127.0.0.1:8000`
+- FastAPI API server on `http://localhost:8000`
 - Celery worker
+- PostgreSQL records and a migration service
 - Redis queue and result backend
-- shared durable storage volume for uploaded PDFs, jobs, auth sessions, reviews, and results
+- an independent durable-outbox dispatcher
+- shared private document volume for uploaded PDFs, jobs, auth documents; records and hashed sessions live in PostgreSQL
 
 The frontend is still run separately from `frontend/` unless you add it to Compose.
 

@@ -15,6 +15,9 @@ The three extraction agents run in parallel (fan-out → fan-in).
 
 from __future__ import annotations
 import logging
+import time
+from functools import wraps
+from app.services.provider_budget import record_stage
 
 from langgraph.graph import StateGraph, END
 
@@ -28,6 +31,16 @@ from app.agents.aggregator import aggregator
 logger = logging.getLogger(__name__)
 
 
+
+def timed_node(node):
+    @wraps(node)
+    def timed(state):
+        started = time.perf_counter()
+        try: return node(state)
+        finally: record_stage(node.__name__, (time.perf_counter()-started)*1000)
+    return timed
+
+
 def build_graph() -> StateGraph:
     """Build and compile the LangGraph claim processing workflow."""
 
@@ -37,11 +50,11 @@ def build_graph() -> StateGraph:
     # -----------------------------------------------------------------------
     # Register nodes
     # -----------------------------------------------------------------------
-    graph.add_node("segregator", segregator_agent)
-    graph.add_node("id_agent", id_agent)
-    graph.add_node("discharge_agent", discharge_agent)
-    graph.add_node("bill_agent", bill_agent)
-    graph.add_node("aggregator", aggregator)
+    graph.add_node("segregator", timed_node(segregator_agent))
+    graph.add_node("id_agent", timed_node(id_agent))
+    graph.add_node("discharge_agent", timed_node(discharge_agent))
+    graph.add_node("bill_agent", timed_node(bill_agent))
+    graph.add_node("aggregator", timed_node(aggregator))
 
     # -----------------------------------------------------------------------
     # Edges: START → segregator → (3 agents in parallel) → aggregator → END

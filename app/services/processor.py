@@ -33,8 +33,7 @@ def process_claim_pdf(claim_id: str, pdf_bytes: bytes) -> ClaimResponse:
         errors = [str(errors)]
 
     logger.error(
-        "Aggregator response missing for claim %s | keys=%s",
-        claim_id,
+        "Aggregator response missing | keys=%s",
         sorted(state_dict.keys()),
     )
     return ClaimResponse(

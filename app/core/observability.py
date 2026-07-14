@@ -2,6 +2,7 @@
 import logging
 import time
 import uuid
+from datetime import datetime
 from contextvars import ContextVar
 from sqlalchemy import select, insert, update, func
 from app.db.operations import http_metrics
@@ -42,9 +43,9 @@ def metrics_snapshot():
     with storage.db.engine.connect() as connection:
         records = connection.execute(select(http_metrics)).mappings().all()
         states = dict(connection.execute(select(jobs.c.status, func.count()).where(jobs.c.deleted.is_(False)).group_by(jobs.c.status)).all())
-        pending = connection.execute(select(func.min(outbox.c.available_at)).where(outbox.c.published.is_(False))).scalar()
+        pending = connection.execute(select(func.min(jobs.c.created_at)).where(jobs.c.status == "queued", jobs.c.deleted.is_(False))).scalar()
         expired = connection.execute(select(func.count()).select_from(attempts).where(attempts.c.status == "running", attempts.c.lease_until <= time.time())).scalar()
-    return {"requests": {row["key"]: row["count"] for row in records}, "latency_total_ms": {row["key"]: row["latency_ms"] for row in records}, "jobs_by_status": states, "oldest_enqueue_age_seconds": max(0, time.time()-pending) if pending else 0, "expired_leases": expired}
+    return {"requests": {row["key"]: row["count"] for row in records}, "latency_total_ms": {row["key"]: row["latency_ms"] for row in records}, "jobs_by_status": states, "oldest_enqueue_age_seconds": max(0, time.time()-datetime.fromisoformat(pending).timestamp()) if pending else 0, "expired_leases": expired}
 
 
 def readiness():

@@ -1,0 +1,10 @@
+{
+  "status": "initial_conditions_require_staging_exercise",
+  "conditions": [
+    {"name": "dependency_unavailable", "signal": "health_ready_http_status", "operator": "!=", "value": 200},
+    {"name": "expired_worker_lease", "signal": "expired_leases", "operator": ">", "value": 0},
+    {"name": "queue_backlog", "signal": "oldest_enqueue_age_seconds", "operator": ">", "value": null},
+    {"name": "failure_spike", "signal": "failed_jobs_per_window", "operator": ">", "value": null},
+    {"name": "provider_budget", "signal": "exhausted_provider_budgets_per_window", "operator": ">", "value": null}
+  ]
+}

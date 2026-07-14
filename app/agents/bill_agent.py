@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from app.core.schemas import AGENT_DOCUMENT_MAP, BillLineItem, ClaimState, ItemizedBillData
-from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.llm_client import ProviderTransientError, build_vision_message, call_llm_json, call_llm_json_text_only
 from app.utils.pdf_utils import render_selected_pages_to_base64
 from app.utils.text_extractors import extract_bill_data_from_text, has_bill_signal
 
@@ -82,6 +82,7 @@ def bill_agent(state: ClaimState) -> dict:
         )
         return {"bill_data": bill_data, "extraction_methods": {"itemized_bill": "model"}}
     except Exception as exc:
+        if isinstance(exc, ProviderTransientError): raise
         logger.error("[Bill Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
         errors.append("Bill extraction unavailable.")
@@ -182,5 +183,6 @@ def _coerce_line_items(raw_items: list[Any]) -> list[BillLineItem]:
                 key: value for key, value in payload.items() if key in BillLineItem.model_fields
             }))
         except Exception as exc:
+            if isinstance(exc, ProviderTransientError): raise
             raise ValueError("Model returned an invalid billing line item.") from None
     return line_items

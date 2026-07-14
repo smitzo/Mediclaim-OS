@@ -9,6 +9,7 @@ from tests.test_tenant_access import login
 
 def test_crash_recovery_stale_fence_and_retry_exhaustion(client, pdf_bytes, monkeypatch):
     monkeypatch.setattr(settings, "processing_max_attempts", 2)
+    monkeypatch.setattr(settings, "retry_base_seconds", 0)
     _, owner = login(client)
     job = routes.storage.create_job("recover", "claim.pdf", pdf_bytes, 1, owner["tenant_id"])
     service = AttemptService(routes.storage)
@@ -24,3 +25,22 @@ def test_crash_recovery_stale_fence_and_retry_exhaustion(client, pdf_bytes, monk
     new = service.acquire(job.job_id)
     assert service.complete(new["fence"], ClaimResponse(claim_id="recovered", status="success"))
     assert routes.storage.get_result(job.job_id).claim_id == "recovered"
+
+
+def test_duplicate_delivery_obeys_retry_delay_and_deadline(client, pdf_bytes, monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from app.services import attempts as module
+    clock = [time.time()]
+    monkeypatch.setattr(module, "time", SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(settings, "retry_base_seconds", 10)
+    monkeypatch.setattr(settings, "processing_deadline_seconds", 30)
+    _, owner = login(client)
+    job = routes.storage.create_job("backoff", "claim.pdf", pdf_bytes, 1, owner["tenant_id"])
+    service = AttemptService(routes.storage)
+    first = service.acquire(job.job_id)
+    assert service.fail(first["fence"], retryable=True)
+    assert service.acquire(job.job_id) is None
+    clock[0] += 60
+    assert service.acquire(job.job_id) is None
+    assert routes.storage.get_job(job.job_id).status == "failed"

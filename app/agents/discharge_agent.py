@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from app.core.schemas import AGENT_DOCUMENT_MAP, ClaimState, DischargeSummaryData
-from app.utils.llm_client import build_vision_message, call_llm_json, call_llm_json_text_only
+from app.utils.llm_client import ProviderTransientError, build_vision_message, call_llm_json, call_llm_json_text_only
 from app.utils.pdf_utils import render_selected_pages_to_base64
 from app.utils.text_extractors import extract_discharge_data_from_text, has_discharge_signal
 
@@ -84,6 +84,7 @@ def discharge_agent(state: ClaimState) -> dict:
         )
         return {"discharge_data": discharge_data, "extraction_methods": {"discharge_summary": "model"}}
     except Exception as exc:
+        if isinstance(exc, ProviderTransientError): raise
         logger.error("[Discharge Agent] Extraction failed")
         errors = state.errors.copy() if state.errors else []
         errors.append("Discharge extraction unavailable.")

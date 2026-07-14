@@ -17,6 +17,7 @@ def login(client, name="alpha"):
     ("post", "/api/process"), ("get", "/api/claims/unknown"),
     ("get", "/api/claims/unknown/result"), ("get", "/api/claims/unknown/review"),
     ("put", "/api/claims/unknown/review"), ("post", "/api/claims/unknown/retry"),
+    ("get", "/api/claims/unknown/document"), ("delete", "/api/claims/unknown"),
 ])
 def test_every_claim_operation_requires_auth(client, method, path):
     assert client.request(method, path, json={}).status_code == 401

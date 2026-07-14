@@ -149,7 +149,7 @@ def has_bill_signal(data: ItemizedBillData) -> bool:
 def _extract_bill_line_items(text: str) -> list[BillLineItem]:
     lines = _lines(text)
     items: list[BillLineItem] = []
-    money_re = re.compile(r"((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)$")
+    money_re = re.compile(r"(?<!\S)((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]{1,2})?)$")
     date_re = re.compile(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})")
 
     for raw_line in lines:
@@ -219,7 +219,7 @@ def _sum_line_items(line_items: list[BillLineItem]) -> Decimal | None:
 
 def _search(text: str, patterns: list[str]) -> str | None:
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
         if match:
             value = match.group(1).strip(" ,.-")
             if value:
@@ -240,7 +240,7 @@ def _search_number(text: str, patterns: list[str]) -> Decimal | None:
 def _search_following_line(lines: list[str], label: str) -> str | None:
     for index, line in enumerate(lines):
         if label.lower() in line.lower():
-            stripped = re.sub(rf"^.*{re.escape(label)}[:\s]*", "", line, flags=re.IGNORECASE).strip(" ,.-")
+            stripped = re.sub(rf"^.*{re.escape(label)}[:\s]*", "", line, flags=re.IGNORECASE | re.MULTILINE).strip(" ,.-")
             if stripped:
                 return stripped
             if index + 1 < len(lines):
