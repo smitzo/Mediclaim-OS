@@ -3,9 +3,9 @@
   "filename": "sample-medical-claim.pdf",
   "pdfHref": "/demo/sample-medical-claim.pdf",
   "pages": [
-    { "number": 1, "title": "Claim form", "documentType": "claim_forms", "preview": "/demo/page-1.webp" },
-    { "number": 2, "title": "Discharge", "documentType": "discharge_summary", "preview": "/demo/page-2.webp" },
-    { "number": 3, "title": "Bill", "documentType": "itemized_bill", "preview": "/demo/page-3.webp" }
+    { "number": 1, "title": "Claim form", "documentType": "claim_forms", "preview": "/demo/page-1.png" },
+    { "number": 2, "title": "Discharge", "documentType": "discharge_summary", "preview": "/demo/page-2.png" },
+    { "number": 3, "title": "Bill", "documentType": "itemized_bill", "preview": "/demo/page-3.png" }
   ],
   "result": {
     "schema_version": "2.0",
