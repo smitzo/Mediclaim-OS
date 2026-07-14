@@ -1,0 +1,72 @@
+{
+  "id": "sample-medical-claim",
+  "filename": "sample-medical-claim.pdf",
+  "pdfHref": "/demo/sample-medical-claim.pdf",
+  "pages": [
+    { "number": 1, "title": "Claim form", "documentType": "claim_forms", "preview": "/demo/page-1.webp" },
+    { "number": 2, "title": "Discharge", "documentType": "discharge_summary", "preview": "/demo/page-2.webp" },
+    { "number": 3, "title": "Bill", "documentType": "itemized_bill", "preview": "/demo/page-3.webp" }
+  ],
+  "result": {
+    "schema_version": "2.0",
+    "claim_id": "CLM-DEMO-2026-001",
+    "status": "success",
+    "page_classification": [
+      { "page_number": 1, "document_type": "claim_forms", "description": "Fictional patient and policy details" },
+      { "page_number": 2, "document_type": "discharge_summary", "description": "Fictional admission and discharge summary" },
+      { "page_number": 3, "document_type": "itemized_bill", "description": "Fictional hospital bill with four line items" }
+    ],
+    "extracted_data": {
+      "identity": {
+        "patient_name": "Aarya Mehta",
+        "policy_number": "DEMO-2026-001",
+        "insurance_provider": "Sample Health Insurance",
+        "claim_type": "Reimbursement"
+      },
+      "discharge_summary": {
+        "hospital_name": "Sample Care Hospital",
+        "admission_date": "2026-10-12",
+        "discharge_date": "2026-10-15",
+        "final_diagnosis": "Acute appendicitis",
+        "treatment_summary": "Laparoscopic appendectomy with an uncomplicated recovery.",
+        "attending_physician": "Dr. Sample Rao",
+        "condition_at_discharge": "Stable"
+      },
+      "itemized_bill": {
+        "bill_number": "DEMO-BILL-001",
+        "bill_date": "2026-10-15",
+        "hospital_name": "Sample Care Hospital",
+        "patient_name": "Aarya Mehta",
+        "currency": "INR",
+        "line_items": [
+          { "description": "Room & nursing", "quantity": 3, "unit_price": "4000.00", "amount": "12000.00" },
+          { "description": "Procedure charges", "quantity": 1, "unit_price": "28000.00", "amount": "28000.00" },
+          { "description": "Medicines", "quantity": 1, "unit_price": "6500.00", "amount": "6500.00" },
+          { "description": "Diagnostics", "quantity": 1, "unit_price": "2000.00", "amount": "2000.00" }
+        ],
+        "subtotal": "48500.00",
+        "tax": "0.00",
+        "discount": "0.00",
+        "total_amount": "48500.00"
+      }
+    },
+    "field_evidence": {
+      "identity.patient_name": { "source_page": 1, "supporting_text": "Patient name: Aarya Mehta", "verification": "sample_fixture", "method": "prepared_demo", "confidence": null },
+      "identity.policy_number": { "source_page": 1, "supporting_text": "Policy number: DEMO-2026-001", "verification": "sample_fixture", "method": "prepared_demo", "confidence": null },
+      "discharge_summary.final_diagnosis": { "source_page": 2, "supporting_text": "Diagnosis: Acute appendicitis", "verification": "sample_fixture", "method": "prepared_demo", "confidence": null },
+      "itemized_bill.total_amount": { "source_page": 3, "supporting_text": "Total billed: INR 48,500.00", "verification": "sample_fixture", "method": "prepared_demo", "confidence": null }
+    },
+    "validation_findings": [],
+    "errors": [],
+    "processing_summary": {
+      "total_pages": 3,
+      "document_types_found": ["claim_forms", "discharge_summary", "itemized_bill"],
+      "pages_per_document_type": { "claim_forms": [0], "discharge_summary": [1], "itemized_bill": [2] },
+      "agents_ran": [],
+      "demo": true,
+      "synthetic": true,
+      "result_source": "prepared_sample",
+      "notice": "Prepared results from a fictional sample claim. No live extraction or claim approval."
+    }
+  }
+}
