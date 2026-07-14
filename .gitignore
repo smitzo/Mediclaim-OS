@@ -11,3 +11,10 @@ dist/
 
 .pytest_cache/
 artifacts/
+
+# Local planning and generated review artifacts
+openspec/
+VERCEL.md
+DEMO_SHOWCASE.md
+VALIDATION.md
+docs/images/demo-showcase-*
