@@ -22,6 +22,7 @@ jobs:
       - run: python -m compileall -q app scripts main.py
       - run: pytest -q
       - run: python scripts/evaluate_quality.py
+      - run: python scripts/check_showcase.py
       - run: alembic upgrade head
         env:
           DATABASE_URL: postgresql+psycopg://claims:synthetic-ci-password@localhost:5432/claims_test
@@ -41,6 +42,17 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:browser
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: showcase-browser-failures
+          path: |
+            frontend/test-results/
+          retention-days: 7
       - run: npm audit --audit-level=high
         working-directory: frontend
   dependencies:
