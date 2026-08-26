@@ -106,11 +106,14 @@ def main() -> None:
     doc.set_metadata({"title": "Synthetic medical claim demo", "author": "ClaimOps", "subject": "Fictional demonstration data"})
     pdf_path = ASSETS / bundle["filename"]
     doc.save(pdf_path, garbage=4, deflate=True, no_new_id=True)
-    for index, meta in enumerate(bundle["pages"]):
-        path = ROOT / "frontend" / "public" / meta["preview"].lstrip("/")
-        doc[index].get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False).save(path)
-    print(f"Generated {doc.page_count} synthetic pages and PNG previews.")
     doc.close()
+    # Render the saved file: saving/garbage collection can invalidate page objects
+    # in the constructing document in older supported PyMuPDF releases.
+    with fitz.open(pdf_path) as rendered:
+        for index, meta in enumerate(bundle["pages"]):
+            path = ROOT / "frontend" / "public" / meta["preview"].lstrip("/")
+            rendered[index].get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False).save(path)
+        print(f"Generated {rendered.page_count} synthetic pages and PNG previews.")
 
 
 if __name__ == "__main__":

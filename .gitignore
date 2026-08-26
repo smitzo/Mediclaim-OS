@@ -11,6 +11,8 @@ dist/
 
 .pytest_cache/
 artifacts/
+frontend/test-results/
+frontend/playwright-report/
 
 # Local planning and generated review artifacts
 openspec/

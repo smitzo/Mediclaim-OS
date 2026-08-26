@@ -4,12 +4,19 @@ import { demoSample } from "@/lib/demo-sample";
 
 export function DocumentViewer({ page, onPageChange }: { page: number; onPageChange: (page: number) => void }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const preview = useRef<HTMLImageElement>(null);
   const [zoom, setZoom] = useState(100);
   const [failed, setFailed] = useState<Record<number, boolean>>({});
   const [retry, setRetry] = useState(0);
   const current = demoSample.pages.find((item) => item.number === page) ?? demoSample.pages[0];
 
   useEffect(() => { viewport.current?.scrollTo({ top: 0, left: 0 }); }, [page]);
+  useEffect(() => {
+    // An SSR image may fail before React attaches onError during hydration.
+    if (preview.current?.complete && preview.current.naturalWidth === 0) {
+      setFailed((value) => ({ ...value, [page]: true }));
+    }
+  }, [page, retry]);
 
   return (
     <div className="overflow-hidden rounded-md border border-zinc-200 bg-zinc-50">
@@ -34,7 +41,7 @@ export function DocumentViewer({ page, onPageChange }: { page: number; onPageCha
           <button type="button" onClick={() => { setRetry((value) => value + 1); setFailed((value) => ({ ...value, [page]: false })); }} className="min-h-9 rounded border border-zinc-300 bg-white px-3 text-xs">Retry preview</button>
         </div> : <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`${current.preview}${retry ? `?retry=${retry}` : ""}`} alt={`${current.title}, page ${page} of 3. Fictional sample claim.`} onError={() => setFailed((value) => ({ ...value, [page]: true }))} width={952} height={1348} style={{ width: `${zoom}%` }} className="mx-auto block h-auto max-w-none border border-zinc-200 bg-white shadow-sm" />
+          <img ref={preview} src={`${current.preview}${retry ? `?retry=${retry}` : ""}`} alt={`${current.title}, page ${page} of 3. Fictional sample claim.`} onError={() => setFailed((value) => ({ ...value, [page]: true }))} width={952} height={1348} style={{ width: `${zoom}%` }} className="mx-auto block h-auto max-w-none border border-zinc-200 bg-white shadow-sm" />
         </>}
       </div>
       <div aria-label="Document pages" className="grid grid-cols-3 gap-3 border-t border-zinc-200 bg-zinc-50 p-3">
