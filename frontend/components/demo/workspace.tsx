@@ -9,6 +9,7 @@ import { DocumentViewer } from "./document-viewer";
 import { useState } from "react";
 import { ResultsPanel } from "./results-panel";
 import { ResultSummary } from "./result-summary";
+import { BillSummary } from "./bill-summary";
 
 export function DemoWorkspace() {
   const demo = useDemo();
@@ -26,6 +27,7 @@ export function DemoWorkspace() {
         </DocumentPanel>
         <ResultsPanel result={demo.result} status={demo.status} selected={demo.selected} error={demo.error}>
           {demo.result ? <ResultSummary result={demo.result} /> : null}
+          {demo.result ? <BillSummary result={demo.result} /> : null}
         </ResultsPanel>
       </div>
     </DemoFrame>
