@@ -10,6 +10,18 @@ This project accepts PDF claim documents, stores them as durable jobs, classifie
 
 Video explanation: https://drive.google.com/file/d/1AT5ryQddgM56CS5ozJYVw5A70nFkQiWl/view
 
+## Public demo showcase
+
+The Next.js frontend now opens a public demo at `/`. Select the included fictional
+claim PDF and choose **Run demo** to see its matching patient details, discharge
+summary, itemized bill, source pages, and exportable JSON. The demo uses clearly
+labeled prepared results and works without the backend or an account.
+
+The existing authenticated dashboard remains at `/workspace` for real uploads,
+processing, and review. To deploy the frontend on Vercel, set Root Directory to
+`frontend`, use the Next.js preset, and keep the standard `npm ci` and
+`npm run build` commands.
+
 ## Workflow
 
 The LangGraph workflow follows this structure:
@@ -322,7 +334,13 @@ If port `3000` is busy:
 npm run dev -- --port 3001
 ```
 
-### 9. Demo login and sample PDFs
+### 9. Public demo and optional local demo login
+
+The public showcase at `http://localhost:3000/` needs no login or environment
+flags. Its fictional PDF and prepared results ship with the frontend.
+
+The company dashboard at `http://localhost:3000/workspace` retains the optional
+local backend demo flow below.
 
 Demo authentication is disabled by default. For local synthetic demonstrations,
 set `AUTH_DEMO_ENABLED=true` in the backend and `NEXT_PUBLIC_DEMO_ENABLED=true`

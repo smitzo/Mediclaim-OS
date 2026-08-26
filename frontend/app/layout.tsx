@@ -3,7 +3,7 @@ import "./tailwind.css";
 
 export const metadata: Metadata = {
   title: "ClaimOps Document Processor",
-  description: "Distributed medical claim invoice processing dashboard"
+  description: "Explore a sample medical claim PDF and its structured patient, discharge, and billing data with ClaimOps."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
