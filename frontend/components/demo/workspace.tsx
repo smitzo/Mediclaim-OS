@@ -8,8 +8,7 @@ import { DemoProgress } from "./progress";
 import { DocumentViewer } from "./document-viewer";
 import { useState } from "react";
 import { ResultsPanel } from "./results-panel";
-import { ResultSummary } from "./result-summary";
-import { BillSummary } from "./bill-summary";
+import { ResultInspector } from "./result-inspector";
 
 export function DemoWorkspace() {
   const demo = useDemo();
@@ -26,8 +25,7 @@ export function DemoWorkspace() {
           <DocumentViewer key={demo.revision} page={page} onPageChange={setPage} />
         </DocumentPanel>
         <ResultsPanel result={demo.result} status={demo.status} selected={demo.selected} error={demo.error}>
-          {demo.result ? <ResultSummary result={demo.result} /> : null}
-          {demo.result ? <BillSummary result={demo.result} /> : null}
+          {demo.result ? <ResultInspector result={demo.result} /> : null}
         </ResultsPanel>
       </div>
     </DemoFrame>
