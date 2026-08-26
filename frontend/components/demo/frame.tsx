@@ -5,7 +5,8 @@ import { demoSample } from "@/lib/demo-sample";
 
 export function DemoFrame({ children, onReset }: { children: ReactNode; onReset: () => void }) {
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
+    <div className="demo-shell min-h-screen bg-zinc-50 text-zinc-950">
+      <a href="#main-content" className="sr-only z-50 rounded-md bg-blue-700 px-4 py-3 text-sm text-white focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to demo</a>
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-[1504px] flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
           <Link href="/" className="inline-flex items-center gap-2.5 font-semibold tracking-tight">
@@ -23,7 +24,7 @@ export function DemoFrame({ children, onReset }: { children: ReactNode; onReset:
           </nav>
         </div>
       </header>
-      <main id="main-content" className="mx-auto max-w-[1504px] px-5 py-6 sm:px-8 sm:py-8">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1504px] px-5 py-6 sm:px-8 sm:py-8">
         <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <p className="mb-2 text-xs text-zinc-500">Workspace <span aria-hidden="true" className="px-1.5">/</span> Demo</p>

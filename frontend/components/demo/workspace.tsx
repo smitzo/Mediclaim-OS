@@ -22,6 +22,9 @@ export function DemoWorkspace() {
   }
   return (
     <DemoFrame onReset={reset}>
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {demo.status === "complete" ? "Demo complete. One claim and three pages loaded. Extracted data is ready to review." : demo.status === "loading" ? "Loading the demo PDF and prepared results." : demo.status === "error" ? "The demo could not be loaded. Please try again." : demo.selected ? "Sample selected. Run demo is available." : "Select the sample PDF to start the demo."}
+      </p>
       <div className="mb-5 flex items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs font-medium text-blue-700 sm:text-sm">
         <Info aria-hidden="true" className="h-4 w-4 shrink-0" /> Interactive demo · Synthetic sample data
       </div>

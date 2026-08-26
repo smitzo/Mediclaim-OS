@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+.demo-shell :where(a, button, select, [tabindex]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.demo-shell ::selection {
+  background: #dbeafe;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-shell *, .demo-shell *::before, .demo-shell *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

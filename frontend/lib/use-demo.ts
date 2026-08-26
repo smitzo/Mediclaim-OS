@@ -52,7 +52,8 @@ export function useDemo() {
       setStatus("complete");
     } catch (exc) {
       if (generation.current !== current || controller.signal.aborted) return;
-      setError(exc instanceof SyntaxError ? "The sample results are invalid. Please try again." :
+      setError(exc instanceof TypeError ? "The demo could not be loaded. Check your connection and try again." :
+        exc instanceof SyntaxError ? "The sample results are invalid. Please try again." :
         exc instanceof Error ? exc.message : "Unable to load the demo. Please try again.");
       setStatus("error");
     } finally {
