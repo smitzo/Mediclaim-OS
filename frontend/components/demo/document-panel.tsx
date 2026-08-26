@@ -10,7 +10,7 @@ export function DocumentPanel({ selected, status, onSelect, onRun, children }: {
   return (
     <section aria-labelledby="demo-document-heading" className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 sm:p-5">
       <div className="mb-4 flex items-center gap-2.5">
-        <h2 id="demo-document-heading" className="text-base font-semibold">Demo document</h2>
+        <h2 id="demo-document-heading" tabIndex={-1} className="rounded-sm text-base font-semibold">Demo document</h2>
         <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">Included sample</span>
       </div>
       <button

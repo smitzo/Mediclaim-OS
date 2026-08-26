@@ -14,6 +14,12 @@ export function DemoWorkspace() {
   const demo = useDemo();
   const [page, setPage] = useState(1);
   function reset() { demo.reset(); setPage(1); }
+  function viewSource(number: number) {
+    setPage(number);
+    const heading = document.getElementById("demo-document-heading");
+    heading?.focus({ preventScroll: true });
+    if (window.matchMedia("(max-width: 1023px)").matches) heading?.scrollIntoView({ block: "start", behavior: "auto" });
+  }
   return (
     <DemoFrame onReset={reset}>
       <div className="mb-5 flex items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-xs font-medium text-blue-700 sm:text-sm">
@@ -25,7 +31,7 @@ export function DemoWorkspace() {
           <DocumentViewer key={demo.revision} page={page} onPageChange={setPage} />
         </DocumentPanel>
         <ResultsPanel result={demo.result} status={demo.status} selected={demo.selected} error={demo.error}>
-          {demo.result ? <ResultInspector result={demo.result} /> : null}
+          {demo.result ? <ResultInspector result={demo.result} onSource={viewSource} /> : null}
         </ResultsPanel>
       </div>
     </DemoFrame>

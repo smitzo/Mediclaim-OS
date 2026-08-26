@@ -2,6 +2,7 @@ import { ClipboardPlus, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DemoResult } from "@/lib/demo-sample";
 import { formatDemoDate } from "@/lib/demo-format";
+import { SourceLink } from "./source-link";
 
 export function DetailSection({ title, icon, children, source }: { title: string; icon: ReactNode; children: ReactNode; source?: ReactNode }) {
   return (
@@ -28,17 +29,17 @@ export function DetailFields({ fields }: { fields: Array<[string, string]> }) {
   );
 }
 
-export function ResultSummary({ result }: { result: DemoResult }) {
+export function ResultSummary({ result, onSource }: { result: DemoResult; onSource: (page: number) => void }) {
   const { identity, discharge_summary: discharge } = result.extracted_data;
   return (
     <div className="mt-3">
-      <DetailSection title="Patient & policy" icon={<UserRound aria-hidden="true" className="h-4 w-4 text-zinc-600" />}>
+      <DetailSection title="Patient & policy" icon={<UserRound aria-hidden="true" className="h-4 w-4 text-zinc-600" />} source={<SourceLink page={1} section="patient and policy" onSource={onSource} />}>
         <DetailFields fields={[
           ["Patient name", identity.patient_name], ["Policy number", identity.policy_number],
           ["Hospital", discharge.hospital_name], ["Claim type", identity.claim_type],
         ]} />
       </DetailSection>
-      <DetailSection title="Discharge summary" icon={<ClipboardPlus aria-hidden="true" className="h-4 w-4 text-zinc-600" />}>
+      <DetailSection title="Discharge summary" icon={<ClipboardPlus aria-hidden="true" className="h-4 w-4 text-zinc-600" />} source={<SourceLink page={2} section="discharge summary" onSource={onSource} />}>
         <DetailFields fields={[
           ["Admitted", formatDemoDate(discharge.admission_date)], ["Discharged", formatDemoDate(discharge.discharge_date)],
           ["Diagnosis", discharge.final_diagnosis], ["Condition at discharge", discharge.condition_at_discharge],

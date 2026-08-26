@@ -4,10 +4,12 @@ import type { DemoResult } from "@/lib/demo-sample";
 import { downloadDemoResult } from "@/lib/demo-export";
 import { ResultSummary } from "./result-summary";
 import { BillSummary } from "./bill-summary";
+import { SourceLink } from "./source-link";
+import { Info } from "lucide-react";
 
 const views = ["Summary", "JSON"] as const;
 
-export function ResultInspector({ result }: { result: DemoResult }) {
+export function ResultInspector({ result, onSource }: { result: DemoResult; onSource: (page: number) => void }) {
   const [view, setView] = useState<(typeof views)[number]>("Summary");
   const id = useId();
   function navigate(event: KeyboardEvent<HTMLButtonElement>) {
@@ -28,7 +30,7 @@ export function ResultInspector({ result }: { result: DemoResult }) {
         <button type="button" onClick={() => downloadDemoResult(result)} className="mb-2 inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-300 px-2.5 text-xs font-medium text-zinc-700 hover:border-blue-300 hover:text-blue-700"><Download aria-hidden="true" className="h-3.5 w-3.5" /> Export JSON</button>
       </div>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${view}`} tabIndex={0} className="min-w-0 rounded-sm">
-        {view === "Summary" ? <><ResultSummary result={result} /><BillSummary result={result} /></> : (
+        {view === "Summary" ? <><ResultSummary result={result} onSource={onSource} /><BillSummary result={result} source={<SourceLink page={3} section="itemized bill" onSource={onSource} />} /><p className="mt-2 flex items-start gap-1.5 text-[11px] leading-5 text-zinc-500"><Info aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />Select a source page to check the original document.</p></> : (
           <pre className="mt-4 max-h-[640px] max-w-full overflow-auto rounded-md bg-zinc-950 p-4 text-xs leading-6 text-zinc-100"><code>{JSON.stringify(result, null, 2)}</code></pre>
         )}
       </div>

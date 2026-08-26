@@ -24,7 +24,7 @@ export function DocumentViewer({ page, onPageChange }: { page: number; onPageCha
           <a aria-label={`Open PDF at page ${page} in a new tab`} href={`${demoSample.pdfHref}#page=${page}`} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex h-8 w-8 items-center justify-center rounded border-l border-zinc-200 hover:bg-zinc-200"><ExternalLink aria-hidden="true" className="h-3.5 w-3.5" /></a>
         </div>
       </div>
-      <div ref={viewport} tabIndex={0} role="region" aria-label={`${current.title} PDF preview, page ${page}`} className="h-[340px] overflow-auto bg-zinc-100 p-3 sm:h-[410px] sm:p-4 xl:h-[440px]">
+      <div id="demo-document-preview" ref={viewport} tabIndex={0} role="region" aria-label={`${current.title} PDF preview, page ${page}`} className="h-[340px] overflow-auto bg-zinc-100 p-3 sm:h-[410px] sm:p-4 xl:h-[440px]">
         {/* A native image keeps the bundled PDF preview usable without a PDF browser plugin. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={current.preview} alt={`${current.title}, page ${page} of 3. Fictional sample claim.`} width={952} height={1348} style={{ width: `${zoom}%` }} className="mx-auto block h-auto max-w-none border border-zinc-200 bg-white shadow-sm" />
