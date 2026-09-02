@@ -362,6 +362,7 @@ python -m compileall app
 pytest -q
 python scripts/evaluate_quality.py
 python scripts/evaluate_sample_dataset.py
+python scripts/check_showcase.py
 cd frontend
 npm run typecheck
 ```
@@ -414,3 +415,9 @@ This project satisfies the assignment requirements by:
 - routing only relevant pages to the extraction agents
 - using three required extraction agents
 - aggregating all outputs into one final JSON response
+
+## Documentation
+
+- [Technical understanding](docs/understanding.md)
+- [System design](docs/system-design.md)
+- [Operating guide](docs/OPERATIONS.md)
